@@ -106,6 +106,7 @@ static inline long sc0(long n) { long r; asm volatile("syscall" : "=a"(r) : "a"(
 static inline long sc1(long n, long a) { long r; asm volatile("syscall" : "=a"(r) : "a"(n), "D"(a) : "rcx", "r11", "memory"); return r; }
 static inline long sc2(long n, long a, long b) { long r; asm volatile("syscall" : "=a"(r) : "a"(n), "D"(a), "S"(b) : "rcx", "r11", "memory"); return r; }
 static inline long sc3(long n, long a, long b, long c) { long r; asm volatile("syscall" : "=a"(r) : "a"(n), "D"(a), "S"(b), "d"(c) : "rcx", "r11", "memory"); return r; }
+static inline long sc4(long n, long a, long b, long c, long d) { long r; register long r10 asm("r10")=d; asm volatile("syscall" : "=a"(r) : "a"(n), "D"(a), "S"(b), "d"(c), "r"(r10) : "rcx", "r11", "memory"); return r; }
 static inline long sc5(long n, long a, long b, long c, long d, long e) {
     long r; register long r10 asm("r10") = d; register long r8 asm("r8") = e;
     asm volatile("syscall" : "=a"(r) : "a"(n), "D"(a), "S"(b), "d"(c), "r"(r10), "r"(r8) : "rcx", "r11", "memory"); return r;
@@ -1505,6 +1506,39 @@ static int toy_mount(const char *dev, const char *dir, const char *fstype) {
     puts("mounted "); puts(dev); puts(" on "); puts(dir); puts("\r\n");
     return 0;
 }
+/* ---- external program execution (process model) ---- */
+#define SYS_fork    57
+#define SYS_execve  59
+#define SYS_wait4   61
+
+static int path_exists(const char *p) {
+    int fd = (int)sc2(SYS_open, (long)p, O_RDONLY);
+    if (fd >= 0) { sc1(SYS_close, fd); return 1; }
+    return 0;
+}
+
+/* fork + exec /bin/<cmd>; returns 1 if it ran, 0 if not found */
+static int try_exec(const char *cmd) {
+    char path[64];
+    int i = 0;
+    const char *a = "/bin/";
+    while (a[i]) { path[i] = a[i]; i++; }
+    int j = 0;
+    while (cmd[j] && i < 62) path[i++] = cmd[j++];
+    path[i] = 0;
+    if (!path_exists(path)) return 0;
+    long pid = sc0(SYS_fork);
+    if (pid == 0) {
+        char *argv[2]; argv[0] = path; argv[1] = 0;
+        sc3(SYS_execve, (long)path, (long)argv, 0);
+        sc1(SYS_exit_group, 127);
+    } else if (pid > 0) {
+        int st = 0;
+        sc4(SYS_wait4, pid, (long)&st, 0, 0);
+    }
+    return 1;
+}
+
 static int run_line(char *line) {
     char *rest = line;
     while (*rest && *rest != ' ' && *rest != '\t') rest++;
@@ -1661,6 +1695,9 @@ static int run_line(char *line) {
         nano_run(a1);
         return 0;
     }
+
+    /* not a builtin: try to exec /bin/<cmd> as a separate process */
+    if (try_exec(cmd)) return 0;
 
     puts("toyium: "); puts(cmd); puts(": command not found\r\n");
     puts("available: toyls, toycd, toypwd, toycat, toynano, toyfetch, toydns, toyip, toyping, toymount, toydf, toync, toyntp, toyserve, echo, clear, help, poweroff, reboot\r\n");

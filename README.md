@@ -208,6 +208,42 @@ Create it with `qemu-img create -f raw build/disk.img 256M` and format with
   `toyserve 80 /toy 8`). QEMU forwards host `:8080` to guest `:80`, so from
   Windows: `curl http://localhost:8080/welcome.txt`.
 
+## Graphics, windows and processes (toywm)
+
+Toyium has a real graphical stack on top of the Linux DRM layer:
+
+- **Kernel**: `bochs-drm` provides `/dev/fb0` (1024x768x32 under QEMU `-vga std`),
+  plus PS/2 mouse at `/dev/input/mice`.
+- **`toygfx`** (`src/toy.h`): a freestanding graphics toolkit — raw framebuffer
+  access via `mmap`, an 8x8 bitmap font, filled rectangles, text and clipping.
+  No libc, no external graphics library.
+- **`toywm`**: a compositor/window manager process. It opens `/dev/fb0`, draws a
+  desktop, task bar and mouse cursor, reads the pointer, and hosts client
+  windows.
+- **Window protocol** over an `AF_UNIX` socket (`/run/toywm.sock`). Clients
+  create a window and send draw commands (`CLEAR`, `RECT`, `TEXT`, `FLUSH`);
+  the WM replies with events (`MOUSE`, `KEY`, `CLOSE`).
+- **Every window is a client process**: `toywm` starts client programs with
+  `fork()` + `execve()`; each `toyterm` process owns its own window. The shell
+  itself runs external programs (`toywm`, `toyps`, `toyterm`) the same way.
+
+Try it in the windowed build:
+
+```
+toyium:/toy# toym
+# desktop appears; drag windows by their title bar with the mouse
+toyium:/toy# toyps
+  PID  COMMAND
+  1    init
+  ...
+  ...  toywm
+  ...  toyterm
+  ...  toyterm
+```
+
+The `toyterm` window shows its own PID and redraw counter, proving each window
+is independently-running process.
+
 ## Self-test
 
 Boot with the extra kernel arg `toyium=test` and `/init` runs an automated

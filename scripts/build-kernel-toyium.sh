@@ -18,7 +18,7 @@ echo "[kernel] trimming to toyium minimal set"
     --set-str CONFIG_LOCALVERSION "-toyium" \
     -d LOCALVERSION_AUTO \
     -d MODULES -d MODULE_SIG \
-    -d SOUND -d DRM -d INPUT_JOYSTICK -d INPUT_TABLET -d INPUT_TOUCHSCREEN -d INPUT_MISC \
+    -d SOUND -d INPUT_JOYSTICK -d INPUT_TABLET -d INPUT_TOUCHSCREEN -d INPUT_MISC \
     -d HID -d USB -d SCSI -d ATA \
     -d I2C -d SPI -d MMC -d WATCHDOG -d HWMON -d THERMAL -d REGULATOR \
     -d STAGING -d DEBUG_INFO -d SECURITY -d WIRELESS -d BT -d BPF_SYSCALL \
@@ -33,7 +33,25 @@ echo "[kernel] enabling minimal networking (virtio-net + DHCP autoconfig)"
 ./scripts/config \
     -e NET -e PACKET -e UNIX -e INET \
     -e IP_PNP -e IP_PNP_DHCP \
-    -e NETDEVICES -e VIRTIO -e VIRTIO_PCI -e VIRTIO_NET
+    -e NETDEVICES -e VIRTIO -e VIRTIO_PCI -e VIRTIO_NET \
+    -e VIRTIO_BLK -e BLOCK
+
+echo "[kernel] enabling graphics (bochs DRM -> /dev/fb0) and PS/2 mouse"
+./scripts/config \
+    -e FB -e DRM -e DRM_BOCHS -e DRM_FBDEV_EMULATION -e FRAMEBUFFER_CONSOLE \
+    -e INPUT_MOUSE -e MOUSE_PS2 -e INPUT_MOUSEDEV -e INPUT_EVDEV
+
+echo "[kernel] trimming heavyweight DRM drivers (keep bochs only)"
+./scripts/config \
+    -d DRM_I915 -d DRM_AMDGPU -d DRM_NOUVEAU -d DRM_RADEON -d DRM_XE \
+    -d DRM_VMWGFX -d DRM_VIRTIO_GPU -d DRM_AST -d DRM_QXL -d DRM_MGAG200 \
+    -d DRM_CIRRUS_QEMU -d DRM_GMA500 -d DRM_UDL -d DRM_VKMS -d DRM_LEGACY \
+    -d DRM_DEBUG_MM
+
+echo "[kernel] trimming netfilter (unused; source absent in this tree)"
+./scripts/config \
+    -d NETFILTER -d NETFILTER_XT_TARGET_TCPMSS -d NETFILTER_XT_MATCH_TCPMSS \
+    -d NF_CONNTRACK -d NETFILTER_ADVANCED -d NET_SCHED -d NET_CLS
 
 echo "[kernel] resolving deps (olddefconfig)"
 make olddefconfig
