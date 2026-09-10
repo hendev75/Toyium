@@ -46,7 +46,12 @@ typedef long ssize_t;
 #define SYS_mount       165
 #define SYS_reboot      169
 #define SYS_getdents64  217
+#define SYS_clock_gettime 228
 #define SYS_exit_group  231
+
+#define CLOCK_REALTIME  0
+
+struct timespec { long tv_sec; long tv_nsec; };
 
 #define O_RDONLY    0
 #define O_WRONLY    1

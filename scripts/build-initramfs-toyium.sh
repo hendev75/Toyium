@@ -23,7 +23,7 @@ mkdir -p "${STAGE}"/{proc,sys,dev,tmp,run,home,bin,etc}
 printf 'toyium\n' > "${STAGE}/etc/hostname"
 
 echo "[initramfs] compiling userland programs"
-for prog in toywm toyterm toyps; do
+for prog in toywm toyterm toyps toyfiles toyinfo; do
     gcc $CCFLAGS -o "${STAGE}/bin/${prog}" "${ROOT}/src/${prog}.c"
     chmod 755 "${STAGE}/bin/${prog}"
     echo "  -> /bin/${prog}"

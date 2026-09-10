@@ -252,6 +252,24 @@ Window controls:
   displays what you type; backspace and Enter work)
 - **Ctrl-C** in the WM quits back to the shell
 
+### Desktop
+
+`toywm` is a small desktop environment: a gradient wallpaper with a logo,
+**desktop icons** (Terminal / Files / About) that launch apps, and a **panel**
+at the bottom with a **Toyium (start) menu**, buttons for every open window,
+and a live **clock**. Click the panel's window buttons to raise a window; the
+start menu and desktop icons spawn new client processes.
+
+Bundled GUI apps (each a separate process):
+
+| App | Window |
+|-----|--------|
+| `toyterm` | terminal-style window; shows keystrokes sent to it |
+| `toyfiles` | file browser over toyfs/ext4; click folders to navigate |
+| `toyinfo` | "About Toyium": kernel, uptime, memory |
+
+Ctrl-C in the WM (or closing every window) returns you to the shell.
+
 ## Self-test
 
 Boot with the extra kernel arg `toyium=test` and `/init` runs an automated

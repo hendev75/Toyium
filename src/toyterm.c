@@ -2,7 +2,7 @@
 /* toyterm - a toywm client process: owns one window drawn via the protocol */
 #include "toy.h"
 
-static struct timespec { long tv_sec; long tv_nsec; } ts = { 0, 200000000 };
+static struct timespec ts = { 0, 200000000 };
 static void msleep(long ms) { ts.tv_sec = ms / 1000; ts.tv_nsec = (ms % 1000) * 1000000L; sc2(SYS_nanosleep, (long)&ts, 0); }
 
 static int connect_wm(void) {
