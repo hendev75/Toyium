@@ -11,6 +11,7 @@
 #define MAXW 16
 #define TITLE_H 18
 #define BORDER 1
+#define CLOSE_W 18
 
 struct window {
     int used;
@@ -78,6 +79,10 @@ static void composite(void) {
         gfx_fill(&screen, w->x, w->y, w->w, TITLE_H,
                  (int)i == focus ? rgb(60, 120, 200) : rgb(70, 70, 90));
         gfx_text(&screen, w->x + 4, w->y + 5, rgb(255, 255, 255), -1, w->title);
+        /* close button */
+        gfx_fill(&screen, w->x + w->w - CLOSE_W, w->y, CLOSE_W, TITLE_H,
+                 (int)i == focus ? rgb(200, 60, 60) : rgb(90, 60, 60));
+        gfx_text(&screen, w->x + w->w - CLOSE_W + 5, w->y + 5, rgb(255, 255, 255), -1, "x");
         blit_window(w);
     }
 
@@ -86,8 +91,8 @@ static void composite(void) {
     gfx_fill(&screen, 0, ty, screen.w, 22, rgb(30, 30, 40));
     gfx_fill(&screen, 0, ty, screen.w, 1, rgb(90, 90, 120));
     gfx_text(&screen, 6, ty + 7, rgb(200, 220, 255), -1, "Toyium WM");
-    gfx_text(&screen, screen.w - 150, ty + 7, rgb(160, 160, 180), -1,
-             "click+drag title bar");
+    gfx_text(&screen, screen.w - 260, ty + 7, rgb(160, 160, 180), -1,
+             "drag title | click x | Ctrl-C quits");
 
     draw_cursor();
 }
@@ -121,10 +126,15 @@ static void send_msg(int fd, struct win_msg *m) { write_full(fd, m, sizeof *m); 
 static void close_win(int i) {
     if (i < 0 || i >= MAXW) return;
     struct window *w = &wins[i];
-    if (w->fd >= 0) { t_close(w->fd); }
+    if (w->fd >= 0) {
+        struct win_msg ev; ev.type = WIN_EV_CLOSE; ev.x = ev.y = ev.w = 0; ev.len = 0;
+        send_msg(w->fd, &ev);
+        t_close(w->fd);
+    }
     w->used = 0;
     w->fd = -1;
     if (focus == i) focus = top_index();
+    puts_("toywm: window closed\n");
 }
 
 static void handle_client(int i) {
@@ -213,13 +223,16 @@ int _start(void) {
 
     struct pollfd {
         int fd; short events; short revents;
-    } fds[MAXW + 2];
+    } fds[MAXW + 3];
     int frame = 0;
+    int kbd_fd = 0;                 /* console input (inherited) */
+    int running = 1;
 
     for (;;) {
         int n = 0;
         fds[n].fd = listen_fd; fds[n].events = POLLIN; fds[n].revents = 0; n++;
         if (mouse_fd >= 0) { fds[n].fd = mouse_fd; fds[n].events = POLLIN; fds[n].revents = 0; n++; }
+        if (kbd_fd >= 0)   { fds[n].fd = kbd_fd;   fds[n].events = POLLIN; fds[n].revents = 0; n++; }
         for (int i = 0; i < MAXW; i++) {
             if (wins[i].used && wins[i].fd >= 0) {
                 fds[n].fd = wins[i].fd; fds[n].events = POLLIN; fds[n].revents = 0; n++;
@@ -279,11 +292,16 @@ int _start(void) {
                         if (lbtn && !old) {
                             int hi = hit_test(mx, my);
                             if (hi >= 0) {
-                                focus = hi;
-                                raise_win(hi);
-                                focus = top_index();
-                                struct window *w = &wins[focus];
-                                if (my < w->y + TITLE_H) { drag_win = focus; drag_dx = mx - w->x; drag_dy = my - w->y; }
+                                struct window *hw = &wins[hi];
+                                if (mx >= hw->x + hw->w - CLOSE_W && my < hw->y + TITLE_H) {
+                                    close_win(hi);            /* close button */
+                                } else {
+                                    focus = hi;
+                                    raise_win(hi);
+                                    focus = top_index();
+                                    struct window *w = &wins[focus];
+                                    if (my < w->y + TITLE_H) { drag_win = focus; drag_dx = mx - w->x; drag_dy = my - w->y; }
+                                }
                             }
                         } else if (!lbtn && old) {
                             drag_win = -1;
@@ -303,6 +321,22 @@ int _start(void) {
                             send_msg(wins[focus].fd, &ev);
                         }
                     }
+                } else if (fds[k].fd == kbd_fd) {
+                    if (fds[k].revents & POLLIN) {
+                        char kb[64];
+                        long r = t_read(kbd_fd, kb, sizeof kb);
+                        for (long o = 0; o < r; o++) {
+                            unsigned char c = (unsigned char)kb[o];
+                            if (c == 0x03) { running = 0; break; }  /* Ctrl-C: quit WM */
+                            if (focus >= 0 && wins[focus].used) {
+                                struct win_msg ev;
+                                ev.type = WIN_EV_KEY; ev.x = ev.y = ev.w = 0;
+                                ev.len = 1; ev.data[0] = (char)c;
+                                send_msg(wins[focus].fd, &ev);
+                                puts_("toywm: key '"); putc_((char)c); puts_("' -> window\n");
+                            }
+                        }
+                    }
                 } else {
                     int wi = -1;
                     for (int q = 0; q < MAXW; q++) if (wins[q].used && wins[q].fd == fds[k].fd) { wi = q; break; }
@@ -313,6 +347,13 @@ int _start(void) {
         }
         composite();
         if (frame == 0) { puts_("toywm: first frame\n"); frame = 1; }
+        while (t_wait4(-1, (int *)0, 1, 0) > 0) { }   /* reap exited clients (WNOHANG) */
+        if (!running) break;
     }
+
+    for (int i = 0; i < MAXW; i++) if (wins[i].used) close_win(i);
+    t_close(listen_fd);
+    t_unlink(WM_SOCK);
+    puts_("toywm: exit\n");
     return 0;
 }

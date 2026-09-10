@@ -52,6 +52,9 @@ int _start(void) {
     int mx = -1, my = -1, mb = 0;
     int counter = 0;
     char line[80];
+    char typed[80];
+    int tn = 0;
+    typed[0] = 0;
 
     for (;;) {
         /* redraw our content */
@@ -107,6 +110,15 @@ int _start(void) {
             m.type = WIN_RECT; m.x = 8; m.y = 130; m.w = bw + 4; m.h = 14; m.color = 0x40A060; send(fd, &m);
         }
 
+        /* typed text (from keyboard events forwarded by toywm) */
+        {
+            char *p = line; const char *a = "type: ";
+            while (*a) *p++ = *a++;
+            for (int i = 0; typed[i] && i < 60; i++) *p++ = typed[i];
+            *p = 0;
+            txt(fd, 8, 156, 0xFFFF66, line);
+        }
+
         m.type = WIN_FLUSH; send(fd, &m);
         counter++;
 
@@ -119,6 +131,13 @@ int _start(void) {
             long r = read_full(fd, &ev, sizeof ev);
             if (r <= 0) break;
             if (ev.type == WIN_EV_MOUSE) { mx = ev.x; my = ev.y; mb = ev.w; }
+            else if (ev.type == WIN_EV_KEY) {
+                unsigned char c = (unsigned char)ev.data[0];
+                puts_("toyterm: got key\n");
+                if (c == 0x7f || c == 0x08) { if (tn > 0) typed[--tn] = 0; }
+                else if (c == '\r' || c == '\n') { tn = 0; typed[0] = 0; }
+                else if (c >= 0x20 && c < 0x7f) { if (tn < 70) { typed[tn++] = (char)c; typed[tn] = 0; } }
+            }
             else if (ev.type == WIN_EV_CLOSE) break;
         }
     }

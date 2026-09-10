@@ -244,6 +244,14 @@ toyium:/toy# toyps
 The `toyterm` window shows its own PID and redraw counter, proving each window
 is independently-running process.
 
+Window controls:
+
+- **drag** a window by its title bar
+- **click the `x`** at the right of a title bar to close that window
+- **type** — keystrokes go to the focused window (the focused `toyterm`
+  displays what you type; backspace and Enter work)
+- **Ctrl-C** in the WM quits back to the shell
+
 ## Self-test
 
 Boot with the extra kernel arg `toyium=test` and `/init` runs an automated
