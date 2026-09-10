@@ -1,0 +1,23 @@
+# Toyium OS — /etc/profile (ash)
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export HOME="/root"
+export TERM="linux"
+export EDITOR="vi"
+export PAGER="less"
+export PS1='\[\e[1;32m\]toyium@\h\[\e[0m\]:\[\e[1;34m\]\w\[\e[0m\]$ '
+alias ll='ls -la'
+alias la='ls -A'
+alias l='ls -CF'
+alias ..='cd ..'
+alias cls='clear'
+alias h='history'
+# Toyium helpers
+alias fetch='toyium-fetch 2>/dev/null || cat /etc/os-release'
+alias motd='cat /etc/motd'
+
+# welcome on login shells
+[ -n "$PS1" ] && {
+    # only print if not already shown by /init
+    # echo "Toyium OS v0.1.0 — type 'help' for commands"
+    :
+}

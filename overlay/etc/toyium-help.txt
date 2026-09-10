@@ -1,0 +1,28 @@
+Toyium OS v0.1.0 — Quick Help
+===========================
+
+Commands:
+  toyium-fetch          System info (neofetch-like)
+  ls, cat, grep, sed, awk, vi, less
+  ps, top, free, df, dmesg, uname -a
+  ip a, ip link, udhcpc -i eth0, ping, wget
+  tar, gzip, find, xargs
+  reboot, poweroff, halt
+  passwd                Set root password
+  adduser <name>        Add user
+
+Tips:
+  Alt+F1/F2/F3          Switch TTYs (if using getty)
+  Ctrl+Alt+Del          Reboot
+
+Files:
+  /etc/toyium.conf      OS config
+  /etc/motd             Message of the day
+  /etc/os-release       OS identification
+  /proc, /sys           Kernel virtual FS
+
+Build:
+  From WSL:  make all && make run
+  ISO:       make run-iso
+  Clean:     make clean
+

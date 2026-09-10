@@ -1,0 +1,7 @@
+#!/bin/sh
+# Toyium OS — /etc/init.d/rcS (run by BusyBox init via inittab)
+echo "[toyium] rcS: mounting filesystems ..."
+mount -t proc none /proc 2>/dev/null || true
+mount -t sysfs none /sys 2>/dev/null || true
+mount -a 2>/dev/null || true
+echo "[toyium] rcS: done"

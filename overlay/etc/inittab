@@ -1,0 +1,11 @@
+# Toyium OS — /etc/inittab (BusyBox init)
+# Used only when /sbin/init is invoked (see overlay/init handoff)
+# Format: id:runlevels:action:process
+
+::sysinit:/etc/init.d/rcS
+::respawn:/sbin/getty -L tty1 115200 vt100
+::respawn:/sbin/getty -L tty2 115200 vt100
+::respawn:/sbin/getty -L tty3 115200 vt100
+::respawn:/sbin/getty -L ttyS0 115200 vt100
+::ctrlaltdel:/sbin/reboot
+::shutdown:/bin/umount -a -r

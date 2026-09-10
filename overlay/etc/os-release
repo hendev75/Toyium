@@ -1,0 +1,12 @@
+NAME="Toyium OS"
+PRETTY_NAME="Toyium OS 0.1.0 (TTY)"
+ID=toyium
+ID_LIKE=busybox
+VERSION="0.1.0"
+VERSION_ID="0.1.0"
+VERSION_CODENAME="iron"
+BUILD_ID="x86_64"
+ANSI_COLOR="1;32"
+HOME_URL="https://toyium.local"
+SUPPORT_URL="https://toyium.local/docs"
+BUG_REPORT_URL="https://toyium.local/bugs"

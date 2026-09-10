@@ -1,0 +1,15 @@
+
+  _____           _                   ___  ____
+ |_   _|__  _   _(_)_   _ _ __ ___  / _ \/ ___|
+   | |/ _ \| | | | | | | | '_ ` _ \| | | \___ \
+   | | (_) | |_| | | |_| | | | | | | |_| |___) |
+   |_|\___/ \__, |_|\__,_|_| |_| |_|\___/|____/
+            |___/
+  Toyium OS v0.1.0  —  64-bit  —  TTY-Only  —  Built for the Command Line
+
+  * Kernel:  Linux 6.6 LTS (x86_64)
+  * Shell:   ash (BusyBox)
+  * Docs:    cat /etc/toyium.conf  |  toyium-fetch
+
+  Welcome, root. No password set — run `passwd` to secure.
+

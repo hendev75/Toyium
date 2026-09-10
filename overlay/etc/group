@@ -1,0 +1,4 @@
+root:x:0:
+toyium:x:1000:
+tty:x:5:
+nobody:x:65534:
