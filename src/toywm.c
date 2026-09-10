@@ -1,69 +1,63 @@
 /* SPDX-License-Identifier: MIT */
-/* toywm - Toyium desktop: wallpaper, desktop icons, panel + start menu,
- *         window manager and compositor. Client windows are separate
- *         processes that talk to the WM over /run/toywm.sock.
+/* toywm - Toyium desktop: pre-rendered wallpaper, desktop icons, panel with
+ *         start menu + clock, window manager and compositor.
+ *
+ * Rendering is double-buffered: the wallpaper/icons are drawn once into a
+ * background buffer, and the screen is only repainted when something changed.
  *
  * made by xex & ayham
  */
 #include "toy.h"
 
 #define MAXW 16
-#define TITLE_H 18
+#define TITLE_H 22
 #define BORDER 1
-#define CLOSE_W 18
-#define PANEL_H 30
-#define MENU_W 170
-#define MENU_ITEM_H 24
+#define CLOSE_W 22
+#define SHADOW 3
+#define PANEL_H 34
+#define MENU_W 214
+#define MENU_ITEM_H 30
 
 struct window {
-    int used;
-    int fd;
+    int used, fd;
     int x, y, w, h;
     struct fb canvas;
     char title[40];
-    int dirty;
-    int minimized;
+    int dirty, minimized;
 };
 
-struct desktop_icon {
-    int x, y;
-    const char *label;
-    const char *cmd;
-    u32 color;
-};
+struct desktop_icon { int x, y; const char *label; const char *cmd; u32 color; };
 
 static struct window wins[MAXW];
 static struct fb screen;
+static struct fb bg;
 static int mouse_fd = -1;
 static int mx = 300, my = 200, mbuttons = 0;
 static int drag_win = -1, drag_dx = 0, drag_dy = 0;
 static int focus = -1;
 static int menu_open = 0;
 static char clock_str[16] = "--:--:--";
+static int need_present = 1;
 
-/* --- app catalogue --------------------------------------------------- */
 static const struct desktop_icon icons[] = {
-    { 30,  30, "Terminal", "toyterm", 0x40A060 },
-    { 30, 120, "Files",    "toyfiles", 0xE0A040 },
-    { 30, 210, "About",    "toyinfo", 0x4090E0 },
+    { 30,  30, "Terminal", "toyterm",  0x40A060 },
+    { 30, 130, "Files",    "toyfiles", 0xE0A040 },
+    { 30, 230, "About",    "toyinfo",  0x4090E0 },
 };
 #define NICONS ((int)(sizeof(icons) / sizeof(icons[0])))
-
 static const char *menu_labels[NICONS] = { "Terminal", "Files", "About Toyium" };
 static const char *menu_cmds[NICONS]   = { "toyterm",  "toyfiles", "toyinfo" };
 
-/* 12x18 arrow cursor (bit0 = leftmost) */
 static const unsigned short cursor_bits[18] = {
     0x001,0x003,0x007,0x00F,0x01F,0x03F,0x07F,0x0FF,0x1FF,
     0x3FF,0x06F,0x067,0x0C3,0x0C1,0x180,0x180,0x100,0x000
 };
 
-static u32 rgb(int r, int g, int b) { return ((u32)r << 16) | ((u32)g << 8) | (u32)b; }
-
+static u32 rgb(int r, int g, int b) { return ((u32)(r & 255) << 16) | ((u32)(g & 255) << 8) | (u32)(b & 255); }
 static int win_total_h(struct window *w) { return TITLE_H + w->h; }
+static int stride_words(void) { return screen.stride / 4; }
 
-/* detach/attach the framebuffer console so the kernel stops drawing terminal
- * text over our desktop while the WM owns the screen */
+/* --- framebuffer console detach / cursor hide ------------------------ */
 static void fbcon_set(int on) {
     for (int i = 0; i < 2; i++) {
         char p[48]; int n = 0;
@@ -76,113 +70,135 @@ static void fbcon_set(int on) {
         if (fd >= 0) { t_write(fd, on ? "1" : "0", 1); t_close(fd); }
     }
 }
+static void vt_cursor(int show) {
+    int fd = (int)t_open("/dev/tty0", O_WRONLY);
+    if (fd >= 0) { t_write(fd, show ? "\x1b[?25h" : "\x1b[?25l", 6); t_close(fd); }
+}
 
-static void launch(const char *name) {
-    char path[64]; int i = 0;
-    const char *a = "/bin/"; while (a[i]) { path[i] = a[i]; i++; }
-    for (int j = 0; name[j] && i < 62; j++) path[i++] = name[j];
-    path[i] = 0;
-    long pid = t_fork();
-    if (pid == 0) {
-        char *argv[2]; argv[0] = path; argv[1] = 0;
-        t_execve(path, argv, (char **)0);
-        t_exit_group(127);
+/* --- fast memory copy ------------------------------------------------ */
+static void fastcopy(u32 *dst, const u32 *src, long n) {
+    long n8 = n >> 1;
+    u64 *d = (u64 *)dst; const u64 *s = (const u64 *)src;
+    for (long i = 0; i < n8; i++) d[i] = s[i];
+    if (n & 1) dst[n - 1] = src[n - 1];
+}
+
+/* --- background (wallpaper + icons), drawn once ---------------------- */
+static void draw_wallpaper(struct fb *f) {
+    for (int y = 0; y < f->h; y++) {
+        int r = 14 + y * 22 / f->h;
+        int g = 26 + y * 30 / f->h;
+        int b = 46 + y * 52 / f->h;
+        gfx_fill(f, 0, y, f->w, 1, rgb(r, g, b));
     }
-}
-
-/* --- drawing helpers ------------------------------------------------- */
-static void draw_cursor(void) {
-    for (int row = 0; row < 18; row++) {
-        unsigned short bits = cursor_bits[row];
-        for (int col = 0; col < 12; col++) {
-            if ((bits >> col) & 1) {
-                int x = mx + col, y = my + row;
-                if (x >= 0 && y >= 0 && x < screen.w && y < screen.h) {
-                    u32 c = (col == 0 || row == 0) ? rgb(0,0,0) : rgb(255,255,255);
-                    fb_px(&screen, x, y, fb_pack(&screen, c));
-                }
-            }
+    for (int d = -f->h; d < f->w; d += 64)
+        for (int y = 0; y < f->h; y += 2) {
+            int x = d + y; if (x < 0 || x >= f->w) continue;
+            u32 c = f->px[(u64)y * (f->stride / 4) + x];
+            int r = ((c >> 16) & 255) + 5, g = ((c >> 8) & 255) + 5, b = (c & 255) + 5;
+            fb_px(f, x, y, fb_pack(f, rgb(r, g, b)));
         }
-    }
+    gfx_text2(f, f->w - 300, 40, rgb(34, 60, 96), -1, "T O Y I U M");
+    gfx_text(f, f->w - 298, 66, rgb(28, 50, 80), -1, "an operating system from scratch");
 }
 
-static void blit_window(struct window *w) {
-    for (int yy = 0; yy < w->h; yy++)
-        for (int xx = 0; xx < w->w; xx++) {
-            u32 c = w->canvas.px[yy * w->w + xx];
-            fb_px(&screen, w->x + xx, w->y + TITLE_H + yy, fb_pack(&screen, c));
-        }
+static void draw_icon_box(struct fb *f, int x, int y, u32 color) {
+    gfx_fill(f, x + 2, y + 2, 36, 36, rgb(8, 10, 16));
+    gfx_fill(f, x, y, 36, 36, rgb(24, 30, 44));
+    gfx_rect(f, x, y, 36, 36, rgb(96, 110, 150));
+    gfx_fill(f, x + 5, y + 5, 26, 26, color);
+    gfx_fill(f, x + 5, y + 5, 26, 5, rgb(255, 255, 255));
 }
 
-static void draw_wallpaper(void) {
-    for (int y = 0; y < screen.h; y++) {
-        int t = y * 255 / screen.h;
-        int r = 16 + t * 18 / 255;
-        int g = 28 + t * 26 / 255;
-        int b = 48 + t * 40 / 255;
-        gfx_fill(&screen, 0, y, screen.w, 1, rgb(r, g, b));
-    }
-    /* subtle diagonal sheen */
-    for (int i = -screen.h; i < screen.w; i += 48)
-        for (int y = 0; y < screen.h; y += 2) {
-            int x = i + y;
-            if (x >= 0 && x < screen.w) {
-                u32 c = screen.px[y * (screen.stride / 4) + x];
-                int r = ((c >> 16) & 0xFF) + 6, g = ((c >> 8) & 0xFF) + 6, b = (c & 0xFF) + 6;
-                fb_px(&screen, x, y, fb_pack(&screen, rgb(r > 255 ? 255 : r, g > 255 ? 255 : g, b > 255 ? 255 : b)));
-            }
-        }
-    /* watermarked logo */
-    gfx_text(&screen, screen.w - 220, 40, rgb(40, 70, 110), -1, "T O Y I U M");
-    gfx_text(&screen, screen.w - 218, 54, rgb(30, 55, 90), -1, "made by xex & ayham");
-}
-
-static void draw_icon_box(int x, int y, u32 color) {
-    gfx_fill(&screen, x, y, 34, 34, rgb(20, 24, 34));
-    gfx_rect(&screen, x, y, 34, 34, rgb(90, 100, 130));
-    gfx_fill(&screen, x + 4, y + 4, 26, 26, color);
-    gfx_fill(&screen, x + 4, y + 4, 26, 4, rgb(255, 255, 255));
-}
-
-static void draw_icons(void) {
+static void draw_icons(struct fb *f) {
     for (int i = 0; i < NICONS; i++) {
-        draw_icon_box(icons[i].x, icons[i].y, icons[i].color);
-        gfx_text(&screen, icons[i].x - 8, icons[i].y + 38, rgb(220, 230, 255), -1, icons[i].label);
+        draw_icon_box(f, icons[i].x, icons[i].y, icons[i].color);
+        gfx_text(f, icons[i].x - 4, icons[i].y + 42, rgb(225, 235, 255), -1, icons[i].label);
     }
 }
 
+static void build_bg(void) {
+    bg = screen;
+    bg.mem = (u8 *)t_mmap(0, screen.bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    bg.px = (u32 *)bg.mem;
+    draw_wallpaper(&bg);
+    draw_icons(&bg);
+}
+
+/* --- window blit with clipping --------------------------------------- */
+static void blit_window(struct window *w) {
+    int W = stride_words();
+    int sx = w->x, sy = w->y + TITLE_H;
+    int x0 = 0, y0 = 0, x1 = w->w, y1 = w->h;
+    if (sx < 0) x0 = -sx;
+    if (sy < 0) y0 = -sy;
+    if (sx + x1 > screen.w) x1 = screen.w - sx;
+    if (sy + y1 > screen.h) y1 = screen.h - sy;
+    if (x1 <= x0 || y1 <= y0) return;
+    for (int yy = y0; yy < y1; yy++) {
+        u32 *dst = screen.px + (u64)(sy + yy) * W + sx + x0;
+        const u32 *src = w->canvas.px + (u64)yy * w->w + x0;
+        int n = x1 - x0;
+        long n8 = n >> 1;
+        u64 *d = (u64 *)dst; const u64 *s = (const u64 *)src;
+        for (long i = 0; i < n8; i++) d[i] = s[i];
+        if (n & 1) dst[n - 1] = src[n - 1];
+    }
+}
+
+/* --- panel / menu / cursor ------------------------------------------- */
 static void panel_win_rect(int i, int *bx, int *bw) {
-    int x = 84;
+    int x = 120;
     for (int k = 0; k < MAXW; k++) {
         if (!wins[k].used) continue;
-        if (k == i) { *bx = x; *bw = 130; return; }
-        x += 134;
+        if (k == i) { *bx = x; *bw = 150; return; }
+        x += 154;
     }
-    *bx = 84; *bw = 130;
+    *bx = 120; *bw = 150;
+}
+
+static void draw_windows(void) {
+    for (int i = 0; i < MAXW; i++) {
+        struct window *w = &wins[i];
+        if (!w->used || w->minimized) continue;
+        int total = win_total_h(w);
+        /* drop shadow */
+        gfx_fill(&screen, w->x - BORDER + SHADOW, w->y - BORDER + SHADOW,
+                 w->w + 2 * BORDER, total + 2 * BORDER, rgb(8, 10, 16));
+        /* frame */
+        gfx_fill(&screen, w->x - BORDER, w->y - BORDER, w->w + 2 * BORDER,
+                 total + 2 * BORDER, rgb(0, 0, 0));
+        /* title bar */
+        gfx_fill(&screen, w->x, w->y, w->w, TITLE_H,
+                 (int)i == focus ? rgb(58, 118, 196) : rgb(66, 70, 88));
+        gfx_text2(&screen, w->x + 6, w->y + 3, rgb(245, 250, 255), -1, w->title);
+        /* close button */
+        gfx_fill(&screen, w->x + w->w - CLOSE_W, w->y, CLOSE_W, TITLE_H,
+                 (int)i == focus ? rgb(196, 64, 64) : rgb(96, 66, 66));
+        gfx_text2(&screen, w->x + w->w - CLOSE_W + 4, w->y + 3, rgb(255, 255, 255), -1, "x");
+        blit_window(w);
+    }
 }
 
 static void draw_panel(void) {
     int py = screen.h - PANEL_H;
-    gfx_fill(&screen, 0, py, screen.w, PANEL_H, rgb(24, 28, 40));
-    gfx_fill(&screen, 0, py, screen.w, 1, rgb(80, 90, 120));
-
+    gfx_fill(&screen, 0, py, screen.w, PANEL_H, rgb(26, 30, 42));
+    gfx_fill(&screen, 0, py, screen.w, 1, rgb(96, 108, 142));
     /* start button */
-    gfx_fill(&screen, 4, py + 4, 72, PANEL_H - 8, menu_open ? rgb(70, 110, 180) : rgb(40, 60, 100));
-    gfx_text(&screen, 12, py + 10, rgb(220, 235, 255), -1, "Toyium");
-
+    gfx_fill(&screen, 4, py + 4, 104, PANEL_H - 8, menu_open ? rgb(72, 112, 184) : rgb(42, 64, 104));
+    gfx_text2(&screen, 14, py + 9, rgb(228, 240, 255), -1, "Toyium");
     /* window buttons */
     for (int i = 0; i < MAXW; i++) {
         if (!wins[i].used) continue;
         int bx, bw; panel_win_rect(i, &bx, &bw);
-        gfx_fill(&screen, bx, py + 4, bw, PANEL_H - 8, (i == focus) ? rgb(60, 80, 130) : rgb(36, 42, 60));
-        char t[14]; int n = 0;
-        for (int j = 0; wins[i].title[j] && j < 13; j++) t[n++] = wins[i].title[j];
+        gfx_fill(&screen, bx, py + 4, bw, PANEL_H - 8, (i == focus) ? rgb(58, 80, 128) : rgb(38, 44, 62));
+        char t[9]; int n = 0;
+        for (int j = 0; wins[i].title[j] && j < 8; j++) t[n++] = wins[i].title[j];
         t[n] = 0;
-        gfx_text(&screen, bx + 6, py + 10, rgb(210, 220, 240), -1, t);
+        gfx_text2(&screen, bx + 8, py + 9, rgb(214, 224, 244), -1, t);
     }
-
     /* clock */
-    gfx_text(&screen, screen.w - 86, py + 10, rgb(180, 220, 255), -1, clock_str);
+    gfx_text2(&screen, screen.w - 138, py + 9, rgb(184, 220, 255), -1, clock_str);
 }
 
 static void draw_start_menu(void) {
@@ -190,39 +206,39 @@ static void draw_start_menu(void) {
     int py = screen.h - PANEL_H;
     int mh = NICONS * MENU_ITEM_H + 8;
     int my0 = py - mh;
-    gfx_fill(&screen, 4, my0, MENU_W, mh, rgb(34, 40, 56));
-    gfx_rect(&screen, 4, my0, MENU_W, mh, rgb(90, 110, 150));
+    gfx_fill(&screen, 4, my0 + 3, MENU_W, mh, rgb(8, 10, 16));       /* shadow */
+    gfx_fill(&screen, 4, my0, MENU_W, mh, rgb(36, 42, 60));
+    gfx_rect(&screen, 4, my0, MENU_W, mh, rgb(96, 116, 158));
     for (int i = 0; i < NICONS; i++) {
         int iy = my0 + 4 + i * MENU_ITEM_H;
-        gfx_fill(&screen, 8, iy + 2, 10, 10, icons[i].color);
-        gfx_text(&screen, 26, iy + 6, rgb(225, 235, 255), -1, menu_labels[i]);
+        gfx_fill(&screen, 14, iy + 8, 14, 14, icons[i].color);
+        gfx_text2(&screen, 40, iy + 7, rgb(228, 238, 255), -1, menu_labels[i]);
     }
 }
 
-static void composite(void) {
-    draw_wallpaper();
-    draw_icons();
-
-    for (int i = 0; i < MAXW; i++) {
-        struct window *w = &wins[i];
-        if (!w->used || w->minimized) continue;
-        gfx_fill(&screen, w->x - BORDER, w->y - BORDER, w->w + 2 * BORDER,
-                 win_total_h(w) + 2 * BORDER, rgb(0, 0, 0));
-        gfx_fill(&screen, w->x, w->y, w->w, TITLE_H,
-                 (int)i == focus ? rgb(60, 120, 200) : rgb(70, 70, 90));
-        gfx_text(&screen, w->x + 4, w->y + 5, rgb(255, 255, 255), -1, w->title);
-        gfx_fill(&screen, w->x + w->w - CLOSE_W, w->y, CLOSE_W, TITLE_H,
-                 (int)i == focus ? rgb(200, 60, 60) : rgb(90, 60, 60));
-        gfx_text(&screen, w->x + w->w - CLOSE_W + 5, w->y + 5, rgb(255, 255, 255), -1, "x");
-        blit_window(w);
+static void draw_cursor(void) {
+    for (int row = 0; row < 18; row++) {
+        unsigned short bits = cursor_bits[row];
+        for (int col = 0; col < 12; col++) {
+            if ((bits >> col) & 1) {
+                int x = mx + col, y = my + row;
+                if (x < 0 || y < 0 || x >= screen.w || y >= screen.h) continue;
+                u32 c = (col == 0 || row == 0) ? rgb(0, 0, 0) : rgb(255, 255, 255);
+                fb_px(&screen, x, y, fb_pack(&screen, c));
+            }
+        }
     }
+}
 
+static void present(void) {
+    fastcopy(screen.px, bg.px, (long)stride_words() * screen.h);
+    draw_windows();
     draw_panel();
     draw_start_menu();
     draw_cursor();
 }
 
-/* --- window z-order -------------------------------------------------- */
+/* --- z-order / hit-testing ------------------------------------------- */
 static void raise_win(int i) {
     if (i < 0 || i >= MAXW || !wins[i].used) return;
     struct window tmp = wins[i];
@@ -238,8 +254,7 @@ static int hit_test(int x, int y) {
         struct window *w = &wins[i];
         if (!w->used || w->minimized) continue;
         if (x >= w->x - BORDER && x < w->x + w->w + BORDER &&
-            y >= w->y - BORDER && y < w->y + win_total_h(w) + BORDER)
-            return i;
+            y >= w->y - BORDER && y < w->y + win_total_h(w) + BORDER) return i;
     }
     return -1;
 }
@@ -251,11 +266,11 @@ static void close_win(int i) {
     struct window *w = &wins[i];
     if (w->fd >= 0) {
         struct win_msg ev; ev.type = WIN_EV_CLOSE; ev.x = ev.y = ev.w = 0; ev.len = 0;
-        send_msg(w->fd, &ev);
-        t_close(w->fd);
+        send_msg(w->fd, &ev); t_close(w->fd);
     }
     w->used = 0; w->fd = -1;
     if (focus == i) focus = top_index();
+    need_present = 1;
 }
 
 static void handle_client(int i) {
@@ -274,9 +289,10 @@ static void handle_client(int i) {
         gfx_text_clip(&w->canvas, m.x, m.y, w->w, w->h, m.color, -1, tmp);
         break;
     }
-    case WIN_FLUSH: w->dirty = 1; break;
+    case WIN_FLUSH: need_present = 1; break;
     case WIN_DESTROY: close_win(i); break;
     }
+    need_present = 1;
 }
 
 static int make_listener(void) {
@@ -298,20 +314,34 @@ static int find_free_win(void) {
     return -1;
 }
 
-static void update_clock(void) {
+static void launch(const char *name) {
+    char path[64]; int i = 0;
+    const char *a = "/bin/"; while (a[i]) { path[i] = a[i]; i++; }
+    for (int j = 0; name[j] && i < 62; j++) path[i++] = name[j];
+    path[i] = 0;
+    long pid = t_fork();
+    if (pid == 0) {
+        char *argv[2]; argv[0] = path; argv[1] = 0;
+        t_execve(path, argv, (char **)0);
+        t_exit_group(127);
+    }
+}
+
+static int update_clock(void) {
     struct timespec ts; ts.tv_sec = 0; ts.tv_nsec = 0;
     sc2(SYS_clock_gettime, CLOCK_REALTIME, (long)&ts);
     long s = ts.tv_sec;
     int hh = (int)((s / 3600) % 24), mm = (int)((s / 60) % 60), ss = (int)(s % 60);
-    clock_str[0] = '0' + hh / 10; clock_str[1] = '0' + hh % 10; clock_str[2] = ':';
-    clock_str[3] = '0' + mm / 10; clock_str[4] = '0' + mm % 10; clock_str[5] = ':';
-    clock_str[6] = '0' + ss / 10; clock_str[7] = '0' + ss % 10; clock_str[8] = 0;
+    char buf[16];
+    buf[0] = '0' + hh / 10; buf[1] = '0' + hh % 10; buf[2] = ':';
+    buf[3] = '0' + mm / 10; buf[4] = '0' + mm % 10; buf[5] = ':';
+    buf[6] = '0' + ss / 10; buf[7] = '0' + ss % 10; buf[8] = 0;
+    if (scmp(buf, clock_str) != 0) { scpy(clock_str, buf); return 1; }
+    return 0;
 }
 
 static void do_click(void) {
     int py = screen.h - PANEL_H;
-
-    /* start menu open? */
     if (menu_open) {
         int mh = NICONS * MENU_ITEM_H + 8;
         int my0 = py - mh;
@@ -319,35 +349,24 @@ static void do_click(void) {
             int idx = (my - (my0 + 4)) / MENU_ITEM_H;
             if (idx >= 0 && idx < NICONS) launch(menu_cmds[idx]);
         }
-        menu_open = 0;
-        return;
+        menu_open = 0; need_present = 1; return;
     }
-
-    /* panel clicks */
     if (my >= py) {
-        if (mx >= 4 && mx < 76) { menu_open = 1; return; }
+        if (mx >= 4 && mx < 108) { menu_open = 1; need_present = 1; return; }
         for (int i = 0; i < MAXW; i++) {
             if (!wins[i].used) continue;
             int bx, bw; panel_win_rect(i, &bx, &bw);
             if (mx >= bx && mx < bx + bw) {
-                wins[i].minimized = 0;
-                focus = i; raise_win(i); focus = top_index();
-                return;
+                wins[i].minimized = 0; focus = i; raise_win(i); focus = top_index();
+                need_present = 1; return;
             }
         }
         return;
     }
-
-    /* desktop icons */
     for (int i = 0; i < NICONS; i++) {
-        if (mx >= icons[i].x && mx < icons[i].x + 34 &&
-            my >= icons[i].y && my < icons[i].y + 34) {
-            launch(icons[i].cmd);
-            return;
-        }
+        if (mx >= icons[i].x && mx < icons[i].x + 36 &&
+            my >= icons[i].y && my < icons[i].y + 36) { launch(icons[i].cmd); return; }
     }
-
-    /* windows */
     int hi = hit_test(mx, my);
     if (hi >= 0) {
         struct window *w = &wins[hi];
@@ -355,34 +374,31 @@ static void do_click(void) {
         focus = hi; raise_win(hi); focus = top_index();
         w = &wins[focus];
         if (my < w->y + TITLE_H) { drag_win = focus; drag_dx = mx - w->x; drag_dy = my - w->y; }
+        need_present = 1;
     }
 }
 
 int _start(void) {
     if (fb_open(&screen, "/dev/fb0") != 0) { puts_("toywm: no /dev/fb0\n"); return 1; }
-    puts_("toywm: fb "); putu_((u64)screen.w); putc_('x'); putu_((u64)screen.h); putc_('\n');
-
-    fbcon_set(0);   /* take the screen away from the kernel console */
-    t_raw(0);       /* read raw keys from the console */
+    fbcon_set(0);
+    vt_cursor(0);
+    t_raw(0);
 
     mouse_fd = (int)t_open("/dev/input/mice", O_RDONLY | O_NONBLOCK);
-    puts_("toywm: mouse "); puts_(mouse_fd >= 0 ? "ok\n" : "MISSING\n");
-
     int listen_fd = make_listener();
-    if (listen_fd < 0) { puts_("toywm: cannot create " WM_SOCK "\n"); return 1; }
+    if (listen_fd < 0) { puts_("toywm: no listener\n"); return 1; }
 
+    build_bg();
     for (int i = 0; i < MAXW; i++) { wins[i].used = 0; wins[i].fd = -1; wins[i].minimized = 0; }
     update_clock();
-
-    /* welcome window */
     launch("toyterm");
     puts_("toywm: desktop up\n");
 
     struct pollfd { int fd; short events; short revents; } fds[MAXW + 3];
-    int frame = 0, kbd_fd = 0, running = 1;
+    int kbd_fd = 0, running = 1;
 
     for (;;) {
-        update_clock();
+        if (update_clock()) need_present = 1;
 
         int n = 0;
         fds[n].fd = listen_fd; fds[n].events = POLLIN; fds[n].revents = 0; n++;
@@ -403,11 +419,11 @@ int _start(void) {
                         long r = read_full(cfd, &m, sizeof m);
                         int ww = (r > 0 && m.type == WIN_CREATE) ? m.w : 320;
                         int wh = (r > 0 && m.type == WIN_CREATE) ? m.h : 200;
-                        if (ww < 64) ww = 64; if (ww > screen.w - 8) ww = screen.w - 8;
-                        if (wh < 48) wh = 48; if (wh > screen.h - PANEL_H - 40) wh = screen.h - PANEL_H - 40;
+                        if (ww < 80) ww = 80; if (ww > screen.w - 8) ww = screen.w - 8;
+                        if (wh < 60) wh = 60; if (wh > screen.h - PANEL_H - 60) wh = screen.h - PANEL_H - 60;
                         wins[idx].used = 1; wins[idx].fd = cfd;
                         wins[idx].w = ww; wins[idx].h = wh;
-                        wins[idx].x = 120 + (idx % 5) * 40; wins[idx].y = 60 + (idx % 5) * 30;
+                        wins[idx].x = 140 + (idx % 5) * 30; wins[idx].y = 60 + (idx % 5) * 26;
                         wins[idx].minimized = 0;
                         for (int k = 0; k < 39; k++) wins[idx].title[k] = 0;
                         const char *t = (r > 0 && m.data[0]) ? m.data : "client";
@@ -453,6 +469,7 @@ int _start(void) {
                             ev.y = my - wins[focus].y - TITLE_H; ev.w = mbuttons; ev.len = 0;
                             send_msg(wins[focus].fd, &ev);
                         }
+                        need_present = 1;
                     }
                 } else if (fds[k].fd == kbd_fd) {
                     if (fds[k].revents & POLLIN) {
@@ -477,8 +494,7 @@ int _start(void) {
                 }
             }
         }
-        composite();
-        if (frame == 0) { puts_("toywm: first frame\n"); frame = 1; }
+        if (need_present) { present(); need_present = 0; }
         while (t_wait4(-1, (int *)0, 1, 0) > 0) { }
         if (!running) break;
     }
@@ -486,7 +502,8 @@ int _start(void) {
     for (int i = 0; i < MAXW; i++) if (wins[i].used) close_win(i);
     t_close(listen_fd);
     t_unlink(WM_SOCK);
-    fbcon_set(1);   /* give the screen back to the console */
+    vt_cursor(1);
+    fbcon_set(1);
     puts_("toywm: exit\n");
     return 0;
 }

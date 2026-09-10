@@ -246,6 +246,30 @@ static void gfx_text(struct fb *fb, int x, int y, u32 fg, int bg, const char *s)
     }
 }
 
+/* 8x8 text drawn at 2x scale (crisper "desktop" UI text) */
+static void gfx_text2(struct fb *fb, int x, int y, u32 fg, int bg, const char *s) {
+    u32 pfg = fb_pack(fb, fg);
+    u32 pbg = bg >= 0 ? fb_pack(fb, (u32)bg) : 0;
+    int drawbg = bg >= 0;
+    int cx = x;
+    for (; *s; s++) {
+        unsigned char ch = (unsigned char)*s;
+        if (ch >= 128) ch = '?';
+        for (int row = 0; row < 8; row++) {
+            unsigned char bits = font8x8[ch][row];
+            for (int col = 0; col < 8; col++) {
+                int on = (bits >> col) & 1;
+                for (int dy = 0; dy < 2; dy++)
+                    for (int dx = 0; dx < 2; dx++) {
+                        if (on) fb_px(fb, cx + col * 2 + dx, y + row * 2 + dy, pfg);
+                        else if (drawbg) fb_px(fb, cx + col * 2 + dx, y + row * 2 + dy, pbg);
+                    }
+            }
+        }
+        cx += 16;
+    }
+}
+
 /* clipped text inside a rect (x,y,w,h) */
 static void gfx_text_clip(struct fb *fb, int x, int y, int w, int h, u32 fg, int bg, const char *s) {
     u32 pfg = fb_pack(fb, fg);

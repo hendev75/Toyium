@@ -269,7 +269,7 @@ Bundled GUI apps (each a separate process):
 
 | App | Window |
 |-----|--------|
-| `toyterm` | terminal-style window; shows keystrokes sent to it |
+| `toyterm` | terminal window: prompt, line editing, scrollback; commands `ls`, `cd`, `pwd`, `cat`, `echo`, `clear`, `help`, `about`, `exit` |
 | `toyfiles` | file browser over toyfs/ext4; click folders to navigate |
 | `toyinfo` | "About Toyium": kernel, uptime, memory |
 
