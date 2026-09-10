@@ -4,7 +4,7 @@
 # Usage: build-initramfs-toyium.sh <project-dir>
 set -euo pipefail
 
-ROOT="$1"
+ROOT="$(cd "$1" && pwd)"
 OUT_DIR="${ROOT}/build"
 STAGE="${OUT_DIR}/initramfs-stage"
 SRC="${ROOT}/src/toyium.c"

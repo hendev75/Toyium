@@ -74,9 +74,12 @@ fi
 QEMU_ARGS=(
     -m "${MEM}"
     -smp "${SMP}"
-    -net nic,model=e1000
-    -net user
+    -netdev user,id=u0,hostfwd=tcp::8080-:80
+    -device virtio-net-pci,netdev=u0
 )
+if [[ -f "${BUILD_DIR}/disk.img" ]]; then
+    QEMU_ARGS+=(-drive "file=${BUILD_DIR}/disk.img,if=virtio,format=raw")
+fi
 
 if [[ ${NOGRAPHIC} -eq 1 ]]; then
     QEMU_ARGS+=(-nographic -serial mon:stdio)
@@ -100,7 +103,7 @@ if [[ "${MODE}" == "direct" ]]; then
     exec "${QEMU}" ${KVM} \
         -kernel "${KERNEL}" \
         -initrd "${INITRAMFS}" \
-        -append "${APPEND_CONSOLE} quiet loglevel=3" \
+        -append "${APPEND_CONSOLE} ip=dhcp quiet loglevel=3" \
         "${QEMU_ARGS[@]}"
 
 elif [[ "${MODE}" == "iso" ]]; then

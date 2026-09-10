@@ -9,7 +9,7 @@
  *   toycd <dir>    change directory
  *   toypwd         print working directory
  *   toycat <file>  print a file
- *   toynano <file> full-screen text editor
+ *   toynano <file> full-screen text edito
  *   echo <text>    print text
  *   clear          clear the screen
  *   help           command help
@@ -46,6 +46,50 @@ typedef long ssize_t;
 #define SYS_getdents64  217
 #define SYS_sync        162
 #define SYS_sethostname 170
+#define SYS_socket      41
+#define SYS_connect     42
+#define SYS_bind        49
+#define SYS_sendto      44
+#define SYS_recvfrom    45
+#define SYS_setsockopt  54
+#define SYS_shutdown    48
+#define SYS_clock_gettime 228
+#define SYS_nanosleep   35
+#define SYS_statfs      137
+#define SYS_bind        49
+#define SYS_listen      50
+#define SYS_accept      43
+#define SYS_clock_settime 227
+
+#define AF_INET         2
+#define SOCK_STREAM     1
+#define SOCK_DGRAM      2
+#define IPPROTO_TCP     6
+#define IPPROTO_UDP     17
+#define IPPROTO_ICMP    1
+#define SOCK_RAW        3
+#define SOL_SOCKET      1
+#define SO_RCVTIMEO     20
+#define SO_SNDTIMEO     21
+#define SIOCGIFADDR     0x8915
+
+struct sockaddr_in {
+    u16 sin_family;
+    u16 sin_port;
+    u32 sin_addr;
+    u8  sin_zero[8];
+};
+
+struct ifreq_addr {
+    char ifr_name[16];
+    u16  sa_family;
+    u8   sa_data[14];
+};
+
+struct k_timeval {
+    long tv_sec;
+    long tv_usec;
+};
 
 #define O_RDONLY        0
 #define O_WRONLY        1
@@ -81,6 +125,29 @@ static long k_getcwd(char *b, u64 n)                  { return sc2(SYS_getcwd, (
 static long k_mkdir(const char *p, long m)            { return sc2(SYS_mkdir, (long)p, m); }
 static long k_mount(const char *s, const char *t, const char *f, u64 fl, const void *d)
                                                         { return sc5(SYS_mount, (long)s, (long)t, (long)f, (long)fl, (long)d); }
+static long k_socket(long dom, long type, long proto)   { return sc3(SYS_socket, dom, type, proto); }
+static long k_connect(long fd, const void *a, long n)   { return sc3(SYS_connect, fd, (long)a, n); }
+static long k_sendto(long fd, const void *b, u64 n, long fl, const void *a, long al)
+                                                        { return sc6(SYS_sendto, fd, (long)b, (long)n, fl, (long)a, al); }
+static long k_recvfrom(long fd, void *b, u64 n, long fl, void *a, void *al)
+                                                        { return sc6(SYS_recvfrom, fd, (long)b, (long)n, fl, (long)a, (long)al); }
+static long k_setsockopt(long fd, long lv, long nm, const void *v, long n)
+                                                        { return sc5(SYS_setsockopt, fd, lv, nm, (long)v, n); }
+static long k_ioctl(long fd, long req, void *arg)       { return sc3(SYS_ioctl, fd, req, (long)arg); }
+static long k_shutdown(long fd, long how)               { return sc2(SYS_shutdown, fd, how); }
+struct k_timespec { long tv_sec; long tv_nsec; };
+static long k_clock_gettime(long clk, void *ts)         { return sc2(SYS_clock_gettime, clk, (long)ts); }
+static long k_nanosleep(const void *req, void *rem)     { return sc2(SYS_nanosleep, (long)req, (long)rem); }
+struct k_statfs {
+    u64 f_type, f_bsize, f_blocks, f_bfree, f_bavail, f_files, f_ffree;
+    u64 f_fsid[2];
+    u64 f_namelen, f_frsize, f_flags, f_spare[4];
+};
+static long k_statfs(const char *p, void *b)            { return sc2(SYS_statfs, (long)p, (long)b); }
+static long k_bind(long fd, const void *a, long n)      { return sc3(SYS_bind, fd, (long)a, n); }
+static long k_listen(long fd, long n)                   { return sc2(SYS_listen, fd, n); }
+static long k_accept(long fd, void *a, void *al)        { return sc3(SYS_accept, fd, (long)a, (long)al); }
+static long k_clock_settime(long clk, const void *ts)   { return sc2(SYS_clock_settime, clk, (long)ts); }
 
 struct linux_dirent64 {
     u64  d_ino;
@@ -218,9 +285,11 @@ static const char *hist_down(void) {
 }
 
 /* ---- commands ---- */
-#define NCMD 10
+#define NCMD 19
 static const char *cmd_names[NCMD] = {
     "toyls", "toycd", "toypwd", "toycat", "toynano",
+    "toyfetch", "toydns", "toyip", "toyping",
+    "toymount", "toydf", "toync", "toyntp", "toyserve",
     "echo", "clear", "help", "poweroff", "reboot"
 };
 
@@ -505,7 +574,7 @@ static void toy_pwd(void) {
 }
 
 /* =====================================================================
- * toynano - full screen editor
+ * toynano - full screen edito
  * ===================================================================== */
 #define ED_MAXL  1024
 #define ED_LMAX  240
@@ -865,6 +934,15 @@ static void show_help(void) {
       "  toypwd         print working directory\r\n"
       "  toycat <file>  print a file\r\n"
       "  toynano <file> full-screen text editor\r\n"
+      "  toyfetch <host> [path] fetch a web page (HTTP)\r\n"
+      "  toydns <host>  resolve a hostname to IPv4\r\n"
+      "  toyip          show interface IPv4 addresses\r\n"
+      "  toyping <host> [count] ICMP ping (TCP/80 fallback)\r\n"
+      "  toymount <dev> <dir> [fstype] mount a filesystem\r\n"
+      "  toydf [path]   show filesystem space\r\n"
+      "  toync <host> <port> TCP client (Ctrl-D quits)\r\n"
+      "  toyntp [server] sync clock via NTP\r\n"
+      "  toyserve [port] [dir] [n] serve files over HTTP\r\n"
       "  echo <text>    print text\r\n"
       "  clear          clear the screen\r\n"
       "  help           this message\r\n"
@@ -898,18 +976,654 @@ static int do_reboot(void) {
     return 1;
 }
 
+/* ---- minimal networking (AF_INET, DNS + HTTP over raw syscalls) ---- */
+static u16 n_htons(u16 v) { return (u16)(((v >> 8) & 0xff) | ((v & 0xff) << 8)); }
+static u32 n_htonl(u32 v) {
+    return ((v >> 24) & 0xff) | ((v >> 8) & 0xff00) |
+           ((v << 8) & 0xff0000) | ((v << 24) & 0xff000000);
+}
+
+/* dotted decimal -> network-order u32. returns 1 ok, 0 bad */
+static int parse_ip(const char *s, u32 *out) {
+    u32 parts[4]; int pi = 0; u32 cur = 0; int digits = 0;
+    for (;;) {
+        char c = *s;
+        if (c >= '0' && c <= '9') { cur = cur * 10 + (u32)(c - '0'); digits++; if (cur > 255) return 0; s++; continue; }
+        if ((c == '.' || c == 0) && digits > 0) {
+            if (pi >= 4) return 0;
+            parts[pi++] = cur; cur = 0; digits = 0;
+            if (c == 0) break;
+            s++; continue;
+        }
+        return 0;
+    }
+    if (pi != 4) return 0;
+    *out = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3];
+    return 1;
+}
+
+static void print_ip(u32 ip) {
+    putu((ip >> 24) & 0xff); putc('.');
+    putu((ip >> 16) & 0xff); putc('.');
+    putu((ip >> 8) & 0xff); putc('.');
+    putu(ip & 0xff);
+}
+
+static void set_timeout(long fd) {
+    struct k_timeval tv;
+    tv.tv_sec = 4; tv.tv_usec = 0;
+    k_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    k_setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+}
+
+/* QEMU user-mode networking serves DNS here */
+#define TOY_DNS_SERVER_IP 0x0a000203u /* 10.0.2.3 */
+
+static u8 dnsbuf[512];
+
+/* encode "a.b.c" as DNS labels. returns length, 0 on overflow */
+static int dns_encode(const char *host, u8 *out, int cap) {
+    int len = 0;
+    for (;;) {
+        int lab = 0;
+        while (host[lab] && host[lab] != '.' && lab < 63) lab++;
+        if (len + 1 + lab + 1 > cap) return 0;
+        out[len++] = (u8)lab;
+        for (int i = 0; i < lab; i++) out[len++] = (u8)host[i];
+        host += lab;
+        if (*host == '.') { host++; continue; }
+        break;
+    }
+    out[len++] = 0;
+    return len;
+}
+
+/* skip a possibly-compressed name. returns offset after it, -1 on error */
+static int dns_skip(const u8 *p, int off, int end) {
+    while (off < end) {
+        u8 c = p[off];
+        if (c == 0) return off + 1;
+        if ((c & 0xc0) == 0xc0) return off + 2;
+        off += 1 + c;
+    }
+    return -1;
+}
+
+static u16 rd16(const u8 *p) { return (u16)((p[0] << 8) | p[1]); }
+
+/* resolve A record. returns 0 ok (ip set, network order), -1 fail */
+static int dns_resolve(const char *host, u32 *out_ip) {
+    static u16 qid = 0x1234;
+    long fd; int qlen, rlen, off, i;
+    struct sockaddr_in sa;
+    u8 *q = dnsbuf;
+
+    if (parse_ip(host, out_ip)) return 0;
+
+    q[0] = (u8)(qid >> 8); q[1] = (u8)qid; qid++;
+    q[2] = 0x01; q[3] = 0x00; /* RD */
+    q[4] = 0; q[5] = 1;       /* QDCOUNT */
+    q[6] = 0; q[7] = 0; q[8] = 0; q[9] = 0; q[10] = 0; q[11] = 0;
+    qlen = dns_encode(host, q + 12, (int)sizeof dnsbuf - 12 - 4);
+    if (!qlen) return -1;
+    qlen += 12;
+    q[qlen++] = 0; q[qlen++] = 1; /* QTYPE A */
+    q[qlen++] = 0; q[qlen++] = 1; /* QCLASS IN */
+
+    fd = k_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) return -1;
+    set_timeout(fd);
+    sa.sin_family = AF_INET;
+    sa.sin_port = n_htons(53);
+    sa.sin_addr = n_htonl(TOY_DNS_SERVER_IP);
+    for (i = 0; i < 8; i++) sa.sin_zero[i] = 0;
+    if (k_sendto(fd, q, (u64)qlen, 0, &sa, 16) != qlen) { k_close(fd); return -1; }
+    rlen = (int)k_recvfrom(fd, q, sizeof dnsbuf, 0, 0, 0);
+    k_close(fd);
+    if (rlen < 12) return -1;
+    if ((q[2] & 0x80) == 0) return -1; /* not a response */
+    off = dns_skip(q, 12, rlen);
+    if (off < 0 || off + 4 > rlen) return -1;
+    off += 4; /* question */
+    for (i = 0; i < 16; i++) { /* up to 16 answers */
+        int rdlen, type;
+        off = dns_skip(q, off, rlen);
+        if (off < 0 || off + 10 > rlen) return -1;
+        type = rd16(q + off); rdlen = rd16(q + off + 8);
+        if (type == 1 && rd16(q + off + 2) == 1 && rdlen == 4 && off + 10 + 4 <= rlen) {
+            *out_ip = ((u32)q[off+10] << 24) | ((u32)q[off+11] << 16) |
+                      ((u32)q[off+12] << 8) | (u32)q[off+13];
+            return 0;
+        }
+        off += 10 + rdlen;
+    }
+    return -1;
+}
+
+static u8 respbuf[32768];
+static char reqbuf[1024];
+
+/* GET http://host[:80]/path (path may be "") and print the body */
+static void toy_fetch(const char *host, const char *path) {
+    u32 ip; long fd, n; u64 total = 0; int rl, bi, hs;
+    struct sockaddr_in sa;
+    const char *p1a = "GET ", *p1b = " HTTP/1.0\r\nHost: ", *p1c = "\r\nConnection: close\r\n\r\n";
+
+    if (dns_resolve(host, &ip) != 0) {
+        puts("toyfetch: cannot resolve '"); puts(host); puts("'\r\n");
+        return;
+    }
+    fd = k_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (fd < 0) { puts("toyfetch: no network (socket failed)\r\n"); return; }
+    set_timeout(fd);
+    sa.sin_family = AF_INET;
+    sa.sin_port = n_htons(80);
+    sa.sin_addr = n_htonl(ip);
+    for (rl = 0; rl < 8; rl++) sa.sin_zero[rl] = 0;
+    if (k_connect(fd, &sa, 16) != 0) {
+        puts("toyfetch: connect to "); print_ip(ip); puts(" failed\r\n");
+        k_close(fd); return;
+    }
+    /* build request */
+    rl = 0;
+    for (bi = 0; p1a[bi] && rl < (int)sizeof reqbuf - 1; bi++) reqbuf[rl++] = p1a[bi];
+    if (!*path || *path != '/') { if (rl < (int)sizeof reqbuf - 1) reqbuf[rl++] = '/'; }
+    for (bi = 0; path[bi] && rl < (int)sizeof reqbuf - 1; bi++) reqbuf[rl++] = path[bi];
+    for (bi = 0; p1b[bi] && rl < (int)sizeof reqbuf - 1; bi++) reqbuf[rl++] = p1b[bi];
+    for (bi = 0; host[bi] && rl < (int)sizeof reqbuf - 1; bi++) reqbuf[rl++] = host[bi];
+    for (bi = 0; p1c[bi] && rl < (int)sizeof reqbuf - 1; bi++) reqbuf[rl++] = p1c[bi];
+    reqbuf[rl] = 0;
+    if (k_write((int)fd, reqbuf, (u64)rl) != rl) {
+        puts("toyfetch: send failed\r\n"); k_close(fd); return;
+    }
+    k_shutdown(fd, 1); /* SHUT_WR: we are done sending */
+    total = 0;
+    for (;;) {
+        n = k_read(fd, respbuf + total, sizeof respbuf - total - 1);
+        if (n <= 0) break;
+        total += (u64)n;
+        if (total >= sizeof respbuf - 1) break;
+    }
+    k_close(fd);
+    if (!total) { puts("toyfetch: empty reply\r\n"); return; }
+    respbuf[total] = 0;
+    /* strip HTTP headers */
+    hs = -1;
+    for (bi = 0; bi + 3 < (int)total; bi++) {
+        if (respbuf[bi] == '\r' && respbuf[bi+1] == '\n' &&
+            respbuf[bi+2] == '\r' && respbuf[bi+3] == '\n') { hs = bi + 4; break; }
+    }
+    if (hs < 0) hs = 0;
+    k_write(1, respbuf + hs, total - (u64)hs);
+    puts("\r\n[toyfetch: "); putu(total - (u64)hs); puts(" body bytes]\r\n");
+}
+
+static void toy_ip(void) {
+    static const char *ifs[] = { "eth0", "lo" };
+    long fd = k_socket(AF_INET, SOCK_DGRAM, 0);
+    int i, found = 0;
+    if (fd < 0) { puts("toyip: no network support in this kernel\r\n"); return; }
+    for (i = 0; i < 2; i++) {
+        struct ifreq_addr rq;
+        int k;
+        for (k = 0; k < 16; k++) rq.ifr_name[k] = 0;
+        for (k = 0; ifs[i][k] && k < 15; k++) rq.ifr_name[k] = ifs[i][k];
+        if (k_ioctl((int)fd, SIOCGIFADDR, &rq) == 0) {
+            u32 ip = ((u32)(u8)rq.sa_data[2] << 24) | ((u32)(u8)rq.sa_data[3] << 16) |
+                     ((u32)(u8)rq.sa_data[4] << 8) | (u32)(u8)rq.sa_data[5];
+            puts(ifs[i]); puts(": "); print_ip(ip); puts("\r\n");
+            found = 1;
+        }
+    }
+    k_close(fd);
+    if (!found) puts("toyip: no IPv4 address (is QEMU net attached? try: ip=dhcp)\r\n");
+}
+
+static void toy_dns(const char *host) {
+    u32 ip;
+    if (dns_resolve(host, &ip) != 0) {
+        puts("toydns: cannot resolve '"); puts(host); puts("'\r\n");
+        return;
+    }
+    puts(host); puts(" -> "); print_ip(ip); puts("\r\n");
+}
+
+/* internet checksum (RFC 1071) */
+static u16 icmp_cksum(const u8 *p, int n) {
+    u32 sum = 0;
+    while (n > 1) { sum += ((u32)p[0] << 8) | p[1]; p += 2; n -= 2; }
+    if (n) sum += (u32)p[0] << 8;
+    sum = (sum >> 16) + (sum & 0xffff);
+    sum += sum >> 16;
+    return (u16)~sum;
+}
+
+static long now_ms(void) {
+    struct k_timespec ts;
+    if (k_clock_gettime(1, &ts) != 0) return -1;
+    return ts.tv_sec * 1000 + ts.tv_nsec / 1000000;
+}
+
+static int parse_uint(const char *s, int *out) {
+    int v = 0, d = 0;
+    if (!*s) return 0;
+    while (*s >= '0' && *s <= '9') { v = v * 10 + (*s - '0'); d = 1; s++; }
+    if (*s || !d) return 0;
+    *out = v; return 1;
+}
+
+/* ICMP echo ping. QEMU user-net drops ICMP, so with zero replies we fall
+ * back to a TCP/80 open check to tell "filtered" from "down". */
+static void toy_ping(const char *host, int count) {
+    u32 ip; long fd, i;
+    long sent = 0, got = 0, tmin = -1, tmax = 0, tsum = 0;
+    static u8 pkt[128];
+    if (count < 1) count = 1;
+    if (count > 20) count = 20;
+    if (dns_resolve(host, &ip) != 0) {
+        puts("toyping: cannot resolve '"); puts(host); puts("'\r\n");
+        return;
+    }
+    puts("PING "); puts(host); puts(" ("); print_ip(ip); puts(")\r\n");
+    fd = k_socket(AF_INET, SOCK_RAW, IPPROTO_ICMP);
+    if (fd < 0) { puts("toyping: raw socket failed\r\n"); return; }
+    {
+        struct k_timeval tv;
+        tv.tv_sec = 1; tv.tv_usec = 0;
+        k_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    }
+    for (i = 0; i < count; i++) {
+        int k, n, hl; long t0, t1;
+        struct sockaddr_in sa;
+        pkt[0] = 8; pkt[1] = 0; pkt[2] = 0; pkt[3] = 0; /* echo request */
+        pkt[4] = 0x54; pkt[5] = 0x59;                   /* id 'TY' */
+        pkt[6] = (u8)(i >> 8); pkt[7] = (u8)i;           /* seq */
+        for (k = 0; k < 32; k++) pkt[8 + k] = (u8)(k + i);
+        {
+            u16 c = icmp_cksum(pkt, 40);
+            pkt[2] = (u8)(c >> 8); pkt[3] = (u8)c;
+        }
+        sa.sin_family = AF_INET; sa.sin_port = 0; sa.sin_addr = n_htonl(ip);
+        for (k = 0; k < 8; k++) sa.sin_zero[k] = 0;
+        t0 = now_ms();
+        if (k_sendto(fd, pkt, 40, 0, &sa, 16) != 40) { puts("send failed\r\n"); continue; }
+        sent++;
+        {
+            long deadline = t0 + 1000, ms = 0;
+            int ok = 0;
+            /* keep receiving until the deadline: raw sockets also get a
+             * copy of our own outgoing request, which must be skipped */
+            while (now_ms() < deadline) {
+                n = (int)k_recvfrom(fd, pkt, sizeof pkt, 0, 0, 0);
+                t1 = now_ms();
+                hl = (n > 0) ? (pkt[0] & 0x0f) * 4 : 0;
+                if (n >= hl + 8 && hl >= 20 && pkt[hl] == 0 && pkt[hl + 1] == 0 &&
+                    pkt[hl + 4] == 0x54 && pkt[hl + 5] == 0x59 &&
+                    pkt[hl + 6] == (u8)(i >> 8) && pkt[hl + 7] == (u8)i) {
+                    ms = t1 - t0;
+                    ok = 1;
+                    break;
+                }
+            }
+            if (ok) {
+                got++; tsum += ms;
+                if (tmin < 0 || ms < tmin) tmin = ms;
+                if (ms > tmax) tmax = ms;
+                puts("reply seq="); putu((u64)i);
+                puts(" time="); putu((u64)ms); puts(" ms\r\n");
+            } else {
+                puts("timeout seq="); putu((u64)i); puts("\r\n");
+            }
+        }
+        if (i + 1 < count) {
+            struct k_timespec rq;
+            rq.tv_sec = 1; rq.tv_nsec = 0;
+            k_nanosleep(&rq, 0);
+        }
+    }
+    k_close(fd);
+    puts("--- "); puts(host); puts(" ping statistics ---\r\n");
+    putu((u64)sent); puts(" sent, "); putu((u64)got); puts(" received, ");
+    putu(sent ? (u64)(100 * (sent - got) / sent) : 100); puts("% loss\r\n");
+    if (got) {
+        puts("rtt min/avg/max = "); putu((u64)tmin); putc('/');
+        putu((u64)(tsum / (u64)got)); putc('/'); putu((u64)tmax); puts(" ms\r\n");
+        return;
+    }
+    puts("no ICMP replies (QEMU user-net blocks ICMP); trying TCP/80 ...\r\n");
+    {
+        long tf = k_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+        if (tf >= 0) {
+            struct sockaddr_in sa2; int k; long t0 = now_ms(), t1;
+            set_timeout(tf);
+            sa2.sin_family = AF_INET; sa2.sin_port = n_htons(80); sa2.sin_addr = n_htonl(ip);
+            for (k = 0; k < 8; k++) sa2.sin_zero[k] = 0;
+            if (k_connect(tf, &sa2, 16) == 0) puts("TCP/80 open");
+            else puts("TCP/80 closed/filtered");
+            t1 = now_ms();
+            puts(" in "); putu((u64)(t1 - t0)); puts(" ms\r\n");
+            k_close(tf);
+        }
+    }
+}
+
 /* ---- command dispatch ---- */
+static void toy_nc(const char *host, int port) {
+    u32 ip; long fd, n;
+    static char line[512];
+    struct sockaddr_in sa;
+    int k;
+    struct k_timeval tv;
+    if (dns_resolve(host, &ip) != 0) {
+        puts("toync: cannot resolve '"); puts(host); puts("'\r\n");
+        return;
+    }
+    fd = k_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (fd < 0) { puts("toync: no network (socket failed)\r\n"); return; }
+    tv.tv_sec = 1; tv.tv_usec = 0;
+    k_setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
+    set_timeout(fd);
+    sa.sin_family = AF_INET; sa.sin_port = n_htons((u16)port); sa.sin_addr = n_htonl(ip);
+    for (k = 0; k < 8; k++) sa.sin_zero[k] = 0;
+    if (k_connect(fd, &sa, 16) != 0) {
+        puts("toync: connect to "); print_ip(ip);
+        puts(" port "); putu((u64)port); puts(" failed\r\n");
+        k_close(fd); return;
+    }
+    puts("connected. empty Ctrl-D quits; blank line sends CRLF.\r\n");
+    for (;;) {
+        static u8 chunk[1024];
+        n = readline("nc> ", line, sizeof line);
+        if (n < 0) break;
+        line[n] = 0;
+        k_write((int)fd, line, (u64)n);
+        k_write((int)fd, "\n", 1);
+        for (;;) {
+            n = k_read(fd, chunk, sizeof chunk);
+            if (n <= 0) break;
+            k_write(1, chunk, (u64)n);
+        }
+    }
+    k_close(fd);
+    puts("\r\ndisconnected\r\n");
+}
+
+/* unix seconds -> "YYYY-MM-DD HH:MM:SS" (UTC) */
+static void fmt_date(u64 secs, char *out) {
+    long days = (long)(secs / 86400);
+    long rem = (long)(secs % 86400);
+    long z = days + 719468;
+    long era = (z >= 0 ? z : z - 146096) / 146097;
+    unsigned doe = (unsigned)(z - era * 146097);
+    unsigned yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    long y = (long)yoe + era * 400;
+    unsigned doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    unsigned mp = (5 * doy + 2) / 153;
+    unsigned d = doy - (153 * mp + 2) / 5 + 1;
+    unsigned m = mp + (mp < 10 ? 3 : -9);
+    unsigned hh, mm, ss;
+    y += (m <= 2);
+    hh = (unsigned)(rem / 3600); mm = (unsigned)((rem % 3600) / 60); ss = (unsigned)(rem % 60);
+    out[0] = (char)('0' + (y / 1000) % 10); out[1] = (char)('0' + (y / 100) % 10);
+    out[2] = (char)('0' + (y / 10) % 10); out[3] = (char)('0' + y % 10);
+    out[4] = '-'; out[5] = (char)('0' + m / 10); out[6] = (char)('0' + m % 10);
+    out[7] = '-'; out[8] = (char)('0' + d / 10); out[9] = (char)('0' + d % 10);
+    out[10] = ' '; out[11] = (char)('0' + hh / 10); out[12] = (char)('0' + hh % 10);
+    out[13] = ':'; out[14] = (char)('0' + mm / 10); out[15] = (char)('0' + mm % 10);
+    out[16] = ':'; out[17] = (char)('0' + ss / 10); out[18] = (char)('0' + ss % 10);
+    out[19] = 0;
+}
+
+static void toy_ntp(const char *server) {
+    u32 ip; long fd, n, i;
+    static u8 pkt[48];
+    struct sockaddr_in sa;
+    int k;
+    u32 tx; u64 usecs;
+    static char datebuf[24];
+    struct k_timespec ts;
+    if (dns_resolve(server, &ip) != 0) {
+        puts("toyntp: cannot resolve '"); puts(server); puts("'\r\n");
+        return;
+    }
+    fd = k_socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (fd < 0) { puts("toyntp: no network (socket failed)\r\n"); return; }
+    set_timeout(fd);
+    for (i = 0; i < 48; i++) pkt[i] = 0;
+    pkt[0] = 0x23; /* LI=0 VN=4 Mode=3 (client) */
+    sa.sin_family = AF_INET; sa.sin_port = n_htons(123); sa.sin_addr = n_htonl(ip);
+    for (k = 0; k < 8; k++) sa.sin_zero[k] = 0;
+    if (k_sendto(fd, pkt, 48, 0, &sa, 16) != 48) {
+        puts("toyntp: send failed\r\n"); k_close(fd); return;
+    }
+    n = k_recvfrom(fd, pkt, sizeof pkt, 0, 0, 0);
+    k_close(fd);
+    if (n < 48) { puts("toyntp: no reply\r\n"); return; }
+    tx = ((u32)pkt[40] << 24) | ((u32)pkt[41] << 16) | ((u32)pkt[42] << 8) | (u32)pkt[43];
+    if (tx < 2208988800u) { puts("toyntp: bad timestamp\r\n"); return; }
+    usecs = (u64)(tx - 2208988800u);
+    ts.tv_sec = (long)usecs; ts.tv_nsec = 0;
+    if (k_clock_settime(0, &ts) != 0) puts("toyntp: clock not set (continuing)\r\n");
+    fmt_date(usecs, datebuf);
+    puts(datebuf); puts(" UTC\r\n");
+}
+
+static void toy_serve(int port, const char *dir, int maxreq) {
+    long sfd, cfd, n;
+    struct sockaddr_in sa;
+    int k, served = 0;
+    static u8 req[2048];
+    sfd = k_socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sfd < 0) { puts("toyserve: no network (socket failed)\r\n"); return; }
+    sa.sin_family = AF_INET; sa.sin_port = n_htons((u16)port); sa.sin_addr = 0;
+    for (k = 0; k < 8; k++) sa.sin_zero[k] = 0;
+    if (k_bind(sfd, &sa, 16) != 0 || k_listen(sfd, 4) != 0) {
+        puts("toyserve: cannot bind port "); putu((u64)port); puts("\r\n");
+        k_close(sfd); return;
+    }
+    puts("serving "); puts(dir); puts(" on port "); putu((u64)port);
+    puts(" (host: http://localhost:8080/ , Ctrl-C hits are just requests)\r\n");
+    while (served < maxreq) {
+        cfd = k_accept(sfd, 0, 0);
+        if (cfd < 0) continue;
+        served++;
+        n = k_read(cfd, req, sizeof req - 1);
+        if (n > 0) {
+            char path[256];
+            int pi = 0, qi = 0;
+            req[n] = 0;
+            /* expect "GET /path ..." */
+            if (n > 4 && req[0] == 'G' && req[1] == 'E' && req[2] == 'T' && req[3] == ' ') {
+                int j = 4;
+                while (req[j] && req[j] != ' ' && req[j] != '\r' && req[j] != '\n' && req[j] != '?'
+                       && pi < (int)sizeof path - 1) {
+                    path[pi++] = (char)req[j++];
+                }
+                path[pi] = 0;
+                /* serve dir + path (index.html for directories) */
+                {
+                    char full[320];
+                    int fi = 0, bad = 0;
+                    for (qi = 0; dir[qi] && fi < (int)sizeof full - 1; qi++) full[fi++] = dir[qi];
+                    for (qi = 0; qi < pi && fi < (int)sizeof full - 1; qi++) full[fi++] = path[qi];
+                    if (fi > 0 && full[fi - 1] == '/') {
+                        static const char *idx = "index.html";
+                        for (qi = 0; idx[qi] && fi < (int)sizeof full - 1; qi++) full[fi++] = idx[qi];
+                    }
+                    full[fi] = 0;
+                    for (qi = 0; full[qi]; qi++) {
+                        if (full[qi] == '.' && full[qi + 1] == '.') bad = 1;
+                    }
+                    if (!bad) {
+                        long ffd = k_open(full, O_RDONLY);
+                        if (ffd >= 0) {
+                            static const char *hd = "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nConnection: close\r\n\r\n";
+                            k_write((int)cfd, hd, slen(hd));
+                            for (;;) {
+                                long r = k_read((int)ffd, respbuf, sizeof respbuf);
+                                if (r <= 0) break;
+                                k_write((int)cfd, respbuf, (u64)r);
+                            }
+                            k_close(ffd);
+                            puts("200 "); puts(full); puts("\r\n");
+                        } else {
+                            static const char *nf = "HTTP/1.0 404 Not Found\r\nConnection: close\r\n\r\nnot found\n";
+                            k_write((int)cfd, nf, slen(nf));
+                            puts("404 "); puts(full); puts("\r\n");
+                        }
+                    }
+                }
+            }
+        }
+        k_close((int)cfd);
+    }
+    k_close((int)sfd);
+    puts("toyserve: done\r\n");
+}
+static int toy_df(const char *path) {
+    struct k_statfs st;
+    u64 total, freeb;
+    if (k_statfs(path, &st) != 0) {
+        puts("toydf: cannot statfs '"); puts(path); puts("'\r\n");
+        return -1;
+    }
+    total = st.f_blocks * st.f_bsize / 1048576;
+    freeb = st.f_bfree * st.f_bsize / 1048576;
+    puts(path); puts(": ");
+    putu(total); puts("M total, ");
+    putu(freeb); puts("M free\r\n");
+    return 0;
+}
+
+static int toy_mount(const char *dev, const char *dir, const char *fstype) {
+    k_mkdir(dir, 0755);
+    if (k_mount(dev, dir, fstype, 0, 0) != 0) {
+        puts("toymount: cannot mount '"); puts(dev);
+        puts("' on '"); puts(dir); puts("'\r\n");
+        return -1;
+    }
+    puts("mounted "); puts(dev); puts(" on "); puts(dir); puts("\r\n");
+    return 0;
+}
 static int run_line(char *line) {
     char *rest = line;
     while (*rest && *rest != ' ' && *rest != '\t') rest++;
     if (*rest) *rest++ = 0;
     while (*rest == ' ' || *rest == '\t') rest++;
     char *cmd = line;
+    if (!*cmd) return 0;
 
     if (scmp(cmd, "echo") == 0) { puts(rest); puts("\r\n"); return 0; }
     if (scmp(cmd, "clear") == 0) { clrscr(); console_setup(); return 0; }
     if (scmp(cmd, "help") == 0) { show_help(); return 0; }
     if (scmp(cmd, "toypwd") == 0) { toy_pwd(); return 0; }
+    if (scmp(cmd, "toyip") == 0) { toy_ip(); return 0; }
+    if (scmp(cmd, "toydns") == 0 || scmp(cmd, "toyfetch") == 0) {
+        char *a1 = rest, *a2 = 0, *e = rest;
+        while (*e && *e != ' ' && *e != '\t') e++;
+        if (*e) { *e = 0; e++; while (*e == ' ' || *e == '\t') e++; if (*e) a2 = e; }
+        if (!*a1 || (scmp(cmd, "toydns") == 0 && a2)) {
+            puts(scmp(cmd, "toydns") == 0 ? "usage: toydns <host>\r\n"
+                                          : "usage: toyfetch <host> [path]\r\n");
+            return 0;
+        }
+        if (scmp(cmd, "toydns") == 0) { toy_dns(a1); return 0; }
+        /* toyfetch: allow http://host/path or host + separate path */
+        {
+            char *host = a1, *path = "/";
+            if (slen(host) > 7 && host[0]=='h' && host[1]=='t' && host[2]=='t' &&
+                host[3]=='p' && host[4]==':' && host[5]=='/' && host[6]=='/') host += 7;
+            {
+                char *s = host;
+                while (*s && *s != '/') s++;
+                if (*s) { *s = 0; path = s + 1; }
+            }
+            if (a2) path = a2;
+            toy_fetch(host, path);
+        }
+        return 0;
+    }
+    if (scmp(cmd, "toyping") == 0) {
+        char *a1 = rest, *a2 = 0, *e = rest;
+        int count = 4, c2;
+        while (*e && *e != ' ' && *e != '\t') e++;
+        if (*e) { *e = 0; e++; while (*e == ' ' || *e == '\t') e++; if (*e) a2 = e; }
+        if (!*a1) { puts("usage: toyping <host> [count]\r\n"); return 0; }
+        if (a2) {
+            if (!parse_uint(a2, &c2) || c2 < 1 || c2 > 20) {
+                puts("usage: toyping <host> [count 1..20]\r\n"); return 0;
+            }
+            count = c2;
+        }
+        toy_ping(a1, count);
+        return 0;
+    }
+    if (scmp(cmd, "toymount") == 0) {
+        char *a1 = rest, *a2 = 0, *a3 = 0, *e = rest;
+        while (*e && *e != ' ' && *e != '\t') e++;
+        if (*e) { *e = 0; e++; while (*e == ' ' || *e == '\t') e++; if (*e) a2 = e; }
+        if (a2) {
+            e = a2;
+            while (*e && *e != ' ' && *e != '\t') e++;
+            if (*e) { *e = 0; e++; while (*e == ' ' || *e == '\t') e++; if (*e) a3 = e; }
+        }
+        if (!*a1 || !a2 || !*a2) { puts("usage: toymount <dev> <dir> [fstype]\r\n"); return 0; }
+        toy_mount(a1, a2, (a3 && *a3) ? a3 : "ext4");
+        return 0;
+    }
+    if (scmp(cmd, "toydf") == 0) {
+        char *a1 = rest, *e = rest;
+        while (*e && *e != ' ' && *e != '\t') e++;
+        if (*e) *e = 0;
+        toy_df(*a1 ? a1 : "/");
+        return 0;
+    }
+    if (scmp(cmd, "toync") == 0) {
+        char *a1 = rest, *a2 = 0, *e = rest;
+        int port;
+        while (*e && *e != ' ' && *e != '\t') e++;
+        if (*e) { *e = 0; e++; while (*e == ' ' || *e == '\t') e++; if (*e) a2 = e; }
+        if (!*a1 || !a2 || !parse_uint(a2, &port) || port < 1 || port > 65535) {
+            puts("usage: toync <host> <port>\r\n"); return 0;
+        }
+        toy_nc(a1, port);
+        return 0;
+    }
+    if (scmp(cmd, "toyntp") == 0) {
+        char *a1 = rest, *e = rest;
+        while (*e && *e != ' ' && *e != '\t') e++;
+        if (*e) *e = 0;
+        toy_ntp(*a1 ? a1 : "pool.ntp.org");
+        return 0;
+    }
+    if (scmp(cmd, "toyserve") == 0) {
+        char *a[3] = { 0, 0, 0 };
+        int na = 0, port = 80, maxreq = 8, tmp;
+        char *e = rest;
+        const char *dir = "/toy";
+        while (na < 3) {
+            while (*e == ' ' || *e == '\t') e++;
+            if (!*e) break;
+            a[na++] = e;
+            while (*e && *e != ' ' && *e != '\t') e++;
+            if (*e) { *e = 0; e++; }
+        }
+        if (na > 0) {
+            if (!parse_uint(a[0], &tmp) || tmp < 1 || tmp > 65535) {
+                puts("usage: toyserve [port] [dir] [count]\r\n"); return 0;
+            }
+            port = tmp;
+        }
+        if (na > 1) dir = a[1];
+        if (na > 2) {
+            if (!parse_uint(a[2], &tmp) || tmp < 1 || tmp > 64) {
+                puts("usage: toyserve [port] [dir] [count 1..64]\r\n"); return 0;
+            }
+            maxreq = tmp;
+        }
+        toy_serve(port, dir, maxreq);
+        return 0;
+    }
     if (scmp(cmd, "poweroff") == 0 || scmp(cmd, "exit") == 0) return do_poweroff();
     if (scmp(cmd, "reboot") == 0) return do_reboot();
 
@@ -949,7 +1663,7 @@ static int run_line(char *line) {
     }
 
     puts("toyium: "); puts(cmd); puts(": command not found\r\n");
-    puts("available: toyls, toycd, toypwd, toycat, toynano, echo, clear, help, poweroff, reboot\r\n");
+    puts("available: toyls, toycd, toypwd, toycat, toynano, toyfetch, toydns, toyip, toyping, toymount, toydf, toync, toyntp, toyserve, echo, clear, help, poweroff, reboot\r\n");
     return 0;
 }
 
@@ -1059,6 +1773,29 @@ static void run_selftest(void) {
     ed_load("/toy/edit.txt");
     report(edn == 1 && scmp(ed[0], "hiyou") == 0, "save + reload");
 
+    /* networking unit tests (offline: pure functions only) */
+    puts("== net tests ==\r\n");
+    {
+        u32 ip = 0;
+        report(parse_ip("10.0.2.3", &ip) && ip == 0x0a000203u, "parse 10.0.2.3");
+        report(!parse_ip("999.1.1.1", &ip), "reject bad octet");
+        report(!parse_ip("1.2.3", &ip), "reject short addr");
+        report(n_htons(80) == 0x5000u, "htons(80)");
+        report(n_htonl(0x01020304u) == 0x04030201u, "htonl");
+        {
+            static const u8 t[8] = { 0x08, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
+            report(icmp_cksum(t, 8) == 0xf7ffu, "icmp checksum");
+        }
+        report(toy_df("/") == 0, "statfs /");
+        {
+            static char d[24];
+            fmt_date(0, d);
+            report(scmp(d, "1970-01-01 00:00:00") == 0, "date epoch");
+            fmt_date(86400u, d);
+            report(scmp(d, "1970-01-02 00:00:00") == 0, "date rollover");
+        }
+    }
+
     puts("== self-test done ==\r\n");
     do_poweroff();
 }
@@ -1096,6 +1833,10 @@ int _start(void) {
         }
     }
 
+    /* persistent disk (QEMU virtio drive), if attached */
+    k_mkdir("/disk", 0755);
+    k_mount("/dev/vda", "/disk", "ext4", 0, 0);
+
     sc2(SYS_sethostname, (long)"toyium", 6);
     probe_cmdline();
     console_setup();
@@ -1113,7 +1854,7 @@ int _start(void) {
         if (sc1(SYS_uname, (long)&u) == 0) { puts(u.release); }
     }
     puts("  made by xex & ayham\r\n");
-    puts("  (commands: toyls, toycd, toypwd, toycat, toynano, echo, clear, help, poweroff, reboot)\r\n\r\n");
+    puts("  (commands: toyls, toycd, toypwd, toycat, toynano, toyfetch, toydns, toyip, toyping, toymount, toydf, toync, toyntp, toyserve, echo, clear, help, poweroff, reboot)\r\n\r\n");
     puts("Type 'help' for usage. TAB completes, Up/Down = history.\r\n\r\n");
 
     if (g_selftest) {

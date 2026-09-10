@@ -34,7 +34,7 @@ this project.
 | **Display** | VGA text console (windowed QEMU) or serial console |
 | **Cursor** | blinking block cursor |
 | **Input** | full keyboard: letters, digits, symbols, SHIFT, CAPS LOCK |
-| **Size** | ~6.7 MB kernel + ~10 KB initramfs |
+| **Size** | ~9.3 MB kernel (with networking) + ~12 KB initramfs |
 
 ## Commands
 
@@ -44,6 +44,15 @@ this project.
 | `toycd <dir>` | change current directory (shown in the prompt) |
 | `toypwd` | print the working directory |
 | `toycat <file>` | print a file |
+| `toyfetch <host> [path]` | fetch a web page over HTTP (needs QEMU net) |
+| `toydns <host>` | resolve a hostname to IPv4 |
+| `toyip` | show interface IPv4 addresses |
+| `toyping <host> [count]` | ICMP ping a website or IP (TCP/80 fallback) |
+| `toymount <dev> <dir> [fstype]` | mount a filesystem |
+| `toydf [path]` | show filesystem space |
+| `toync <host> <port>` | TCP client (Ctrl-D quits) |
+| `toyntp [server]` | sync clock via NTP |
+| `toyserve [port] [dir] [n]` | serve files over HTTP |
 | `toynano <file>` | full-screen text editor |
 | `echo <text>` | print text |
 | `clear` | clear the screen |
@@ -143,9 +152,61 @@ Raw QEMU:
 
 ```bash
 qemu-system-x86_64 -m 256 -no-reboot \
+  -netdev user,id=u0 -device virtio-net-pci,netdev=u0 \
   -kernel build/bzImage -initrd build/initramfs.cpio.gz \
-  -append "console=tty0 rdinit=/init quiet loglevel=3"
+  -append "console=tty0 rdinit=/init ip=dhcp quiet loglevel=3"
 ```
+
+## Networking
+
+The kernel ships with a minimal network stack (`NET`, `INET`, `virtio-net`,
+`IP_PNP_DHCP`) and QEMU provides user-mode NAT. The guest gets `10.0.2.15`
+via DHCP (`ip=dhcp` on the kernel command line), DNS is at `10.0.2.3`.
+`/init` speaks raw syscalls — no libc — with its own tiny DNS client:
+
+```
+toyium:/toy# toyip
+eth0: 10.0.2.15
+lo: 127.0.0.1
+toyium:/toy# toydns example.com
+example.com -> 172.66.147.243
+toyium:/toy# toyfetch example.com
+<!doctype html>...Example Domain...
+[toyfetch: 559 body bytes]
+toyium:/toy# toyping example.com
+PING example.com (172.66.147.243)
+reply seq=0 time=17 ms
+reply seq=1 time=15 ms
+--- example.com ping statistics ---
+2 sent, 2 received, 0% loss
+rtt min/avg/max = 15/16/17 ms
+```
+
+## Persistent disk
+
+`build/disk.img` (256 MB ext4, gitignored) is attached as a virtio-blk drive
+when present and auto-mounted at `/disk` — files there survive reboots:
+
+```
+toyium:/toy# toydf /disk
+/disk: 223M total, 223M free
+toyium:/toy# toynano /disk/note.txt   # edit, Ctrl-O, Ctrl-X
+toyium:/toy# toycat /disk/note.txt
+hello persistent world
+```
+
+Create it with `qemu-img create -f raw build/disk.img 256M` and format with
+`mkfs.ext4 -F build/disk.img` (in WSL).
+
+## More net tools
+
+- `toync <host> <port>` — interactive TCP client; blank line sends CRLF,
+  Ctrl-D quits. Handy for hand-rolled HTTP.
+- `toyntp [server]` — SNTP client (default `pool.ntp.org`); sets the system
+  clock and prints UTC.
+- `toyserve [port] [dir] [n]` — tiny iterative HTTP server (default
+  `toyserve 80 /toy 8`). QEMU forwards host `:8080` to guest `:80`, so from
+  Windows: `curl http://localhost:8080/welcome.txt`.
 
 ## Self-test
 

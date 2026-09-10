@@ -18,7 +18,7 @@ echo "[kernel] trimming to toyium minimal set"
     --set-str CONFIG_LOCALVERSION "-toyium" \
     -d LOCALVERSION_AUTO \
     -d MODULES -d MODULE_SIG \
-    -d NET -d SOUND -d DRM -d INPUT_JOYSTICK -d INPUT_TABLET -d INPUT_TOUCHSCREEN -d INPUT_MISC \
+    -d SOUND -d DRM -d INPUT_JOYSTICK -d INPUT_TABLET -d INPUT_TOUCHSCREEN -d INPUT_MISC \
     -d HID -d USB -d SCSI -d ATA \
     -d I2C -d SPI -d MMC -d WATCHDOG -d HWMON -d THERMAL -d REGULATOR \
     -d STAGING -d DEBUG_INFO -d SECURITY -d WIRELESS -d BT -d BPF_SYSCALL \
@@ -29,6 +29,12 @@ echo "[kernel] enabling console input (VGA keyboard)"
     -e INPUT -e INPUT_KEYBOARD -e KEYBOARD_ATKBD \
     -e SERIO -e SERIO_I8042 -e SERIO_LIBPS2
 
+echo "[kernel] enabling minimal networking (virtio-net + DHCP autoconfig)"
+./scripts/config \
+    -e NET -e PACKET -e UNIX -e INET \
+    -e IP_PNP -e IP_PNP_DHCP \
+    -e NETDEVICES -e VIRTIO -e VIRTIO_PCI -e VIRTIO_NET
+
 echo "[kernel] resolving deps (olddefconfig)"
 make olddefconfig
 
@@ -37,6 +43,9 @@ grep -q "^CONFIG_BLK_DEV_INITRD=y" .config || { echo "no BLK_DEV_INITRD" >&2; ex
 grep -q "^CONFIG_DEVTMPFS=y" .config || { echo "no DEVTMPFS" >&2; exit 1; }
 grep -q "^CONFIG_SERIAL_8250_CONSOLE=y" .config || { echo "no serial console" >&2; exit 1; }
 grep -q "^CONFIG_BINFMT_ELF=y" .config || { echo "no binfmt_elf" >&2; exit 1; }
+grep -q "^CONFIG_INET=y" .config || { echo "no INET" >&2; exit 1; }
+grep -q "^CONFIG_VIRTIO_NET=y" .config || { echo "no VIRTIO_NET" >&2; exit 1; }
+grep -q "^CONFIG_IP_PNP_DHCP=y" .config || { echo "no IP_PNP_DHCP" >&2; exit 1; }
 
 echo "[kernel] building bzImage (-j${JOBS}) ..."
 make -j"${JOBS}" bzImage
