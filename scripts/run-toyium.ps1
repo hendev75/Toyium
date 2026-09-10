@@ -23,8 +23,8 @@ $Disk = Join-Path $Root 'build\disk.img'
 if (Test-Path $Disk) { $base += @('-drive', "file=$Disk,if=virtio,format=raw") }
 
 if ($Mode -eq 'Window') {
-    Write-Host '[toyium] windowed boot (GTK). Type help / toyls / toycd. poweroff to quit.' -ForegroundColor Cyan
-    $append = 'console=tty0 rdinit=/init ip=dhcp quiet loglevel=3'
+    Write-Host '[toyium] windowed boot (GTK). Boots into the desktop; Ctrl-C quits the WM to the shell.' -ForegroundColor Cyan
+    $append = 'console=tty0 rdinit=/init ip=dhcp quiet loglevel=3 consoleblank=0 vt.global_cursor_default=0'
     & $Qemu @base -append $append -display gtk
 } else {
     Write-Host '[toyium] serial boot. poweroff to quit; Ctrl-A X to kill QEMU.' -ForegroundColor Cyan

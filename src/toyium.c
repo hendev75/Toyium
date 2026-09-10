@@ -1899,6 +1899,22 @@ int _start(void) {
         for (;;) sc0(SYS_exit_group);
     }
 
+    /* boot straight into the graphical desktop on a real (non-serial) console */
+    if (!g_serial && path_exists("/dev/fb0")) {
+        (void)raw_mode(0);
+        long wpid = sc0(SYS_fork);
+        if (wpid == 0) {
+            char *argv[2]; argv[0] = (char *)"/bin/toywm"; argv[1] = 0;
+            sc3(SYS_execve, (long)"/bin/toywm", (long)argv, 0);
+            sc1(SYS_exit_group, 127);
+        } else if (wpid > 0) {
+            int st = 0;
+            sc4(SYS_wait4, wpid, (long)&st, 0, 0);
+        }
+        clrscr();
+        console_setup();
+    }
+
     k_chdir("/toy");
     for (;;) {
         long g = k_getcwd(cwd, sizeof cwd);

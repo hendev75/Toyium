@@ -113,6 +113,18 @@ static long t_mkdir(const char *p, long m)  { return sc2(SYS_mkdir, (long)p, m);
 static long t_unlink(const char *p)          { return sc1(SYS_unlink, (long)p); }
 static long t_mount(const char *s, const char *t, const char *f, u64 fl, const void *d) { return sc5(SYS_mount,(long)s,(long)t,(long)f,(long)fl,(long)d); }
 
+/* minimal raw-mode setup (no libc termios) */
+struct t_termios { unsigned int c_iflag, c_oflag, c_cflag, c_lflag; unsigned char c_line, c_cc[19]; };
+static int t_raw(int fd) {
+    struct t_termios t;
+    if (sc3(SYS_ioctl, fd, TCGETS, (long)&t) != 0) return 0;
+    t.c_iflag = 0;
+    t.c_lflag &= ~(unsigned int)0x000B;   /* ICANON|ECHO|ISIG */
+    t.c_oflag &= ~(unsigned int)0x0001;   /* OPOST */
+    t.c_cc[5] = 0; t.c_cc[6] = 1;
+    return sc3(SYS_ioctl, fd, TCSETS, (long)&t) == 0;
+}
+
 /* ---- mini string / io ---- */
 static u64 slen(const char *s) { u64 n = 0; while (s[n]) n++; return n; }
 static int scmp(const char *a, const char *b) { while (*a && *a == *b) { a++; b++; } return (u8)*a - (u8)*b; }

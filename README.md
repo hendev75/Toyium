@@ -254,6 +254,11 @@ Window controls:
 
 ### Desktop
 
+On a graphical (windowed) boot Toyium **starts the desktop automatically** —
+`/init` launches `toywm` and detaches the kernel's framebuffer console so it
+doesn't draw terminal text over the GUI. Press **Ctrl-C** to quit the WM and
+drop to the shell (the console comes back).
+
 `toywm` is a small desktop environment: a gradient wallpaper with a logo,
 **desktop icons** (Terminal / Files / About) that launch apps, and a **panel**
 at the bottom with a **Toyium (start) menu**, buttons for every open window,

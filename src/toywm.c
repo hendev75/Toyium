@@ -62,6 +62,21 @@ static u32 rgb(int r, int g, int b) { return ((u32)r << 16) | ((u32)g << 8) | (u
 
 static int win_total_h(struct window *w) { return TITLE_H + w->h; }
 
+/* detach/attach the framebuffer console so the kernel stops drawing terminal
+ * text over our desktop while the WM owns the screen */
+static void fbcon_set(int on) {
+    for (int i = 0; i < 2; i++) {
+        char p[48]; int n = 0;
+        const char *a = "/sys/class/vtconsole/vtcon";
+        while (a[n]) { p[n] = a[n]; n++; }
+        p[n++] = '0' + i;
+        const char *b = "/bind"; int j = 0; while (b[j]) p[n++] = b[j++];
+        p[n] = 0;
+        int fd = (int)t_open(p, O_WRONLY);
+        if (fd >= 0) { t_write(fd, on ? "1" : "0", 1); t_close(fd); }
+    }
+}
+
 static void launch(const char *name) {
     char path[64]; int i = 0;
     const char *a = "/bin/"; while (a[i]) { path[i] = a[i]; i++; }
@@ -347,6 +362,9 @@ int _start(void) {
     if (fb_open(&screen, "/dev/fb0") != 0) { puts_("toywm: no /dev/fb0\n"); return 1; }
     puts_("toywm: fb "); putu_((u64)screen.w); putc_('x'); putu_((u64)screen.h); putc_('\n');
 
+    fbcon_set(0);   /* take the screen away from the kernel console */
+    t_raw(0);       /* read raw keys from the console */
+
     mouse_fd = (int)t_open("/dev/input/mice", O_RDONLY | O_NONBLOCK);
     puts_("toywm: mouse "); puts_(mouse_fd >= 0 ? "ok\n" : "MISSING\n");
 
@@ -468,6 +486,7 @@ int _start(void) {
     for (int i = 0; i < MAXW; i++) if (wins[i].used) close_win(i);
     t_close(listen_fd);
     t_unlink(WM_SOCK);
+    fbcon_set(1);   /* give the screen back to the console */
     puts_("toywm: exit\n");
     return 0;
 }
