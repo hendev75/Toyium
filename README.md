@@ -277,26 +277,31 @@ Ctrl-C in the WM (or closing every window) returns you to the shell.
 
 ## X11 userland (Buildroot)
 
-Alongside the toy userland, the repo can build a **real X11 desktop** from a
-Buildroot-generated musl root filesystem, running on the same Toyium kernel.
-This replaces the custom `toywm` compositor with Xorg + Openbox + xterm.
+Alongside the toy userland, the repo builds a **real Toyium X11 desktop** from a
+Buildroot-generated musl root filesystem. This replaces the custom `toywm`
+compositor with Xorg + Openbox + xterm, plus Toyium's own dock, calculator
+and shell commands.
 
 | Piece | Detail |
 |-------|--------|
 | **Toolchain** | Buildroot 2025.02.9, musl, x86_64 |
 | **Init/Userland** | BusyBox, sysv init |
-| **X server** | Xorg 1.21 modular (`xf86-video-fbdev` on `/dev/fb0`) |
-| **WM** | Openbox |
-| **Terminal** | xterm |
+| **Kernel** | Stock Buildroot `qemu_x86_64` 6.12 (`build/toyium-x11-bzImage`) |
+| **X server** | Xorg 1.21 modular (`xf86-video-fbdev` on `/dev/fb0`, no shadow) |
+| **WM** | Openbox (Toyium menu only) |
+| **Terminal** | xterm (musl pty fixes in `board/toyium/x11/patches/`) |
+| **Dock** | `toypanel` — left taskbar with launchers, clock, net status |
+| **Calculator** | `toycalc` — Toyium's own Xlib calculator |
+| **Shell** | All toy commands (`toyls`, `toycd`, `toyfetch`, …) via `/etc/toyium-shrc` |
 | **Fonts** | DejaVu |
-| **Input** | `xf86-input-mouse` (`/dev/input/mice`) |
+| **Input** | `xf86-input-evdev` (keyboard + mouse, eudev) |
 | **Root FS** | 512 MB ext4 (`build/toyium-x11-rootfs.ext4`) |
 
 Build (inside WSL; downloads/builds Buildroot into `/root/toyium`):
 
 ```bash
 bash scripts/build-x11.sh
-# -> build/toyium-x11-rootfs.ext4
+# -> build/toyium-x11-rootfs.ext4 + build/toyium-x11-bzImage
 ```
 
 Run (Windows, GUI window):
@@ -307,14 +312,14 @@ powershell -ExecutionPolicy Bypass -File scripts/run-x11.ps1
 
 `scripts/build-x11.sh` drives Buildroot with `x86_64` + musl + Xorg + Openbox +
 xterm, then the board overlay (`board/toyium/x11/`) installs `/etc/X11/xorg.conf`,
-the tty setup, and `S40xorg`/`S41xclients` init scripts. The kernel is Toyium's
-existing `build/bzImage`; the rootfs is passed as `root=/dev/vda`.
+the Toyium menu/panel/apps, and the `tty1` → `startx` session. The X11 rootfs
+boots with the stock kernel above; the rootfs is passed as `root=/dev/vda`.
 
 Serial diagnostics are available on `ttyS0` (`getty -n -l /bin/sh`), and Xorg's
 log is `/var/log/Xorg.0.log`.
 
-> Status: Xorg (fbdev) and Openbox start on `vt01`; the terminal/clients and
-> input mapping are the remaining bring-up items.
+> Status: working desktop — dock, terminals, calculator, keyboard/mouse,
+> Toyium shell commands. Right-click gives the Toyium menu.
 
 ## Self-test
 
