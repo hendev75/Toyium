@@ -1,2 +1,4 @@
 export PATH=/bin:/sbin:/usr/bin:/usr/sbin
 export TERM=linux
+export ENV=/etc/toyium-shrc
+[ -f /etc/toyium-shrc ] && . /etc/toyium-shrc

@@ -42,17 +42,34 @@ exec startx /root/.xinitrc -- :0 vt1 -keeptty >/dev/ttyS0 2>&1
 EOF
 chmod 755 "$TARGET_DIR/sbin/toyium-x11-shell"
 
-# X session: window manager + terminals.
+# X session: panel + window manager + terminals.
 cat > "$TARGET_DIR/root/.xinitrc" <<'EOF'
 #!/bin/sh
 export LANG=C
+export ENV=/etc/toyium-shrc
+toypanel &
 xterm -fa "DejaVu Sans Mono" -fs 11 -bg white -fg black \
-      -geometry 90x28+40+40 -title "Toyium X11 Terminal" &
+      -geometry 90x28+40+60 -title "Toyium X11 Terminal" &
 xterm -fa "DejaVu Sans Mono" -fs 11 -bg black -fg white \
-      -geometry 90x28+120+120 -title "Toyium Shell" &
+      -geometry 90x28+120+140 -title "Toyium Shell" &
 exec openbox
 EOF
 chmod 755 "$TARGET_DIR/root/.xinitrc"
+
+# Build the Toyium X apps (panel, calculator, fetch) with the Buildroot
+# toolchain. post-build runs at target-finalize, so the toolchain and
+# libX11 are already built and the binaries land in the image.
+TOYX11_SRC="/mnt/c/Users/gws/Desktop/os/board/toyium/x11/apps"
+TOYX11_CC="/root/toyium/buildroot-x11/host/bin/x86_64-buildroot-linux-musl-gcc"
+TOYX11_SYSROOT="/root/toyium/buildroot-x11/host/x86_64-buildroot-linux-musl/sysroot"
+"$TOYX11_CC" --sysroot="$TOYX11_SYSROOT" -O2 -o "$TARGET_DIR/usr/bin/toycalc" \
+    "$TOYX11_SRC/toycalc.c" -lX11
+"$TOYX11_CC" --sysroot="$TOYX11_SYSROOT" -O2 -o "$TARGET_DIR/usr/bin/toypanel" \
+    "$TOYX11_SRC/toypanel.c" -lX11
+"$TOYX11_CC" --sysroot="$TOYX11_SYSROOT" -O2 -o "$TARGET_DIR/usr/bin/toyium-fetch" \
+    "/mnt/c/Users/gws/Desktop/os/src/toyium-fetch.c"
+chmod 755 "$TARGET_DIR/usr/bin/toycalc" "$TARGET_DIR/usr/bin/toypanel" \
+    "$TARGET_DIR/usr/bin/toyium-fetch"
 
 # BusyBox getty has no --autologin. Use -n (no name prompt) + -l <program>.
 # tty1 runs the X session; ttyS0 stays as a login-free serial diagnostic shell.

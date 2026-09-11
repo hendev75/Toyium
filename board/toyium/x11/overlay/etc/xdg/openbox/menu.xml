@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<openbox_menu xmlns="http://openbox.org/3.4/menu">
+
+<menu id="apps-toyium-menu" label="Toyium">
+  <item label="Terminal">
+    <action name="Execute">
+      <command>xterm</command>
+    </action>
+  </item>
+  <item label="Toyium Calculator">
+    <action name="Execute">
+      <command>toycalc</command>
+    </action>
+  </item>
+  <item label="Text Editor">
+    <action name="Execute">
+      <command>xterm -hold -e vi</command>
+    </action>
+  </item>
+  <separator />
+  <item label="Toyium Fetch">
+    <action name="Execute">
+      <command>xterm -hold -e toyium-fetch</command>
+    </action>
+  </item>
+  <item label="Network Info">
+    <action name="Execute">
+      <command>xterm -hold -e sh -c 'toyfetch; toyip'</command>
+    </action>
+  </item>
+</menu>
+
+<menu id="root-menu" label="Toyium">
+  <separator label="Toyium" />
+  <menu id="apps-toyium-menu"/>
+  <separator label="System" />
+  <item label="Reconfigure Openbox">
+    <action name="Reconfigure" />
+  </item>
+  <item label="Log Out">
+    <action name="Exit">
+      <prompt>yes</prompt>
+    </action>
+  </item>
+  <separator />
+  <item label="Reboot">
+    <action name="Execute">
+      <command>reboot</command>
+    </action>
+  </item>
+  <item label="Power Off">
+    <action name="Execute">
+      <command>poweroff</command>
+    </action>
+  </item>
+</menu>
+
+</openbox_menu>

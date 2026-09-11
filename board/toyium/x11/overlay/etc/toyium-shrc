@@ -1,0 +1,151 @@
+# /etc/toyium-shrc - Toyium commands for BusyBox ash.
+# Sourced via $ENV (see /etc/profile and /root/.xinitrc).
+# Mirrors the original Toyium REPL: toyls, toycd, toypwd, toycat,
+# toynano, toyfetch, toydns, toyip, toyping, toymount, toydf, toync,
+# toyntp, toyserve, toyps, toyinfo, toycalc. Both "toycd /x" and
+# "toy cd /x" styles work.
+#
+# made by xex & ayham
+
+toyls() {
+    ls --color=auto -lah "${1:-.}"
+}
+
+toycd() {
+    if [ $# -eq 0 ]; then
+        cd "$HOME" || return 1
+    else
+        cd "$1" 2>/dev/null || { echo "toycd: cannot go to '$1'"; return 1; }
+    fi
+}
+
+toypwd() {
+    pwd
+}
+
+toycat() {
+    if [ $# -eq 0 ]; then echo "usage: toycat <file>"; return 1; fi
+    cat "$1"
+}
+
+toynano() {
+    if [ $# -eq 0 ]; then echo "usage: toynano <file>"; return 1; fi
+    vi "$1"
+}
+
+toyfetch() {
+    toyium-fetch
+}
+
+toydns() {
+    if [ $# -eq 0 ]; then echo "usage: toydns <host>"; return 1; fi
+    nslookup "$1"
+}
+
+toy() {
+    if [ $# -eq 0 ]; then
+        echo "usage: toy <cd|ls|pwd|cat|nano|fetch|dns|ip|ping|df|mount|nc|ntp|serve|ps|info|calc> [...]"
+        return 1
+    fi
+    _toy_c="$1"; shift
+    case "$_toy_c" in
+        cd) toycd "$@" ;;
+        ls) toyls "$@" ;;
+        pwd) toypwd "$@" ;;
+        cat) toycat "$@" ;;
+        nano) toynano "$@" ;;
+        fetch) toyfetch "$@" ;;
+        dns) toydns "$@" ;;
+        ip) toyip "$@" ;;
+        ping) toyping "$@" ;;
+        df) toydf "$@" ;;
+        mount) toymount "$@" ;;
+        nc) toync "$@" ;;
+        ntp) toyntp "$@" ;;
+        serve) toyserve "$@" ;;
+        ps) toyps "$@" ;;
+        info) toyinfo "$@" ;;
+        calc) toycalc "$@" ;;
+        *) echo "toy: unknown '$_toy_c' (try: cd ls pwd cat fetch ip dns ping)"; return 1 ;;
+    esac
+    unset _toy_c
+}
+
+toyip() {
+    ip -brief addr
+}
+
+toyping() {
+    ping -c 4 "${1:-8.8.8.8}"
+}
+
+toymount() {
+    mount | sort
+}
+
+toydf() {
+    df -h
+}
+
+toync() {
+    if command -v nc >/dev/null 2>&1; then
+        nc "$@"
+    else
+        echo "toync: netcat not installed"
+        return 1
+    fi
+}
+
+toyntp() {
+    rdate -s "${1:-pool.ntp.org}" && date
+}
+
+toyserve() {
+    mkdir -p "$HOME/www"
+    echo "toyserve: serving $HOME/www on http://0.0.0.0:8080 (Ctrl-C to stop)"
+    httpd -p 8080 -h "$HOME/www" -f
+}
+
+toyps() {
+    ps
+}
+
+toyinfo() {
+    echo "Toyium OS - made by xex & ayham"
+    uname -a
+    echo "--- memory ---"
+    grep -E "MemTotal|MemFree" /proc/meminfo
+    echo "--- uptime ---"
+    cut -d' ' -f1 /proc/uptime 2>/dev/null
+    echo "seconds up"
+}
+
+toycalc() {
+    command toycalc "$@" &
+}
+
+toyhelp() {
+    echo "Toyium commands:"
+    echo "  toyls [dir]    list directory contents"
+    echo "  toycd <dir>    change directory   ('toy cd' works too)"
+    echo "  toypwd         print working directory"
+    echo "  toycat <file>  print a file"
+    echo "  toynano <file> edit a file (vi)"
+    echo "  toyfetch       system info"
+    echo "  toydns <host>  resolve a hostname"
+    echo "  toyip          show IP addresses"
+    echo "  toyping [host] ping (default 8.8.8.8)"
+    echo "  toymount       list mounts"
+    echo "  toydf          disk free"
+    echo "  toync ...      netcat"
+    echo "  toyntp [srv]   sync clock (default pool.ntp.org)"
+    echo "  toyserve       serve ~/www on :8080"
+    echo "  toyps          process list"
+    echo "  toyinfo        about this machine"
+    echo "  toycalc        Toyium calculator"
+}
+
+# Toyium prompt for interactive shells only
+case "$-" in
+    *i*) PS1='toyium:\w\$ ' ;;
+esac

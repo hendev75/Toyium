@@ -15,6 +15,7 @@ OUT="/root/toyium/buildroot-x11"
 OVERLAY="/mnt/c/Users/gws/Desktop/os/board/toyium/x11/overlay"
 POSTBUILD="/mnt/c/Users/gws/Desktop/os/board/toyium/x11/post-build.sh"
 KFRAGMENT="/mnt/c/Users/gws/Desktop/os/board/toyium/x11/linux-fbdev.fragment"
+BBFRAG="/mnt/c/Users/gws/Desktop/os/board/toyium/x11/busybox.fragment"
 JOBS="$(nproc 2>/dev/null || echo 4)"
 
 if [[ ! -f "${BR}/Makefile" ]]; then
@@ -50,6 +51,7 @@ BR2_PACKAGE_DEJAVU_MONO=y
 BR2_PACKAGE_DEJAVU_SANS=y
 BR2_PACKAGE_UTIL_LINUX=y
 BR2_PACKAGE_E2FSPROGS=y
+BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="${BBFRAG}"
 BR2_ROOTFS_OVERLAY="${OVERLAY}"
 BR2_TARGET_ROOTFS_EXT2=y
 BR2_TARGET_ROOTFS_EXT2_4=y
@@ -73,6 +75,10 @@ done
 # DRM fbdev-emulation fragment so bochs-drm exposes /dev/fb0 for the fbdev driver.
 sed -i '/^BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES=/d' "${OUT}/.config"
 printf 'BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="%s"\n' "${KFRAGMENT}" >> "${OUT}/.config"
+
+# BusyBox fragment for Toyium applets (nc, httpd, ntpd).
+sed -i '/^BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES=/d' "${OUT}/.config"
+printf 'BR2_PACKAGE_BUSYBOX_CONFIG_FRAGMENT_FILES="%s"\n' "${BBFRAG}" >> "${OUT}/.config"
 
 # Xterm musl pty fix is applied directly to the extracted source
 # (see patch block below).
