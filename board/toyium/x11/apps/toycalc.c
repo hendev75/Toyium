@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define WIN_W 260
 #define WIN_H 380
@@ -26,8 +27,11 @@ static Display *dpy;
 static Window win;
 static GC gc;
 static XFontStruct *font;
+static XFontStruct *bigfont;
+static int pressed_btn = -1;
 static int scr;
-static unsigned long c_bg, c_fg, c_btn, c_op, c_disp, c_dispfg, c_err;
+static unsigned long c_bg, c_fg, c_btn, c_op, c_disp, c_dispfg, c_err,
+    c_eq, c_clr;
 
 static char entry[64] = "0";
 static double acc = 0.0;
@@ -156,15 +160,23 @@ static void btn_geom(int i, int *x, int *y, int *w, int *h)
     *h = bh;
 }
 
-static void draw_centered(int x, int y, int w, int h, const char *s, unsigned long fg)
+static void draw_centered_f(XFontStruct *f, int x, int y, int w, int h,
+                            const char *s, unsigned long fg)
 {
     int dir, asc, desc;
     XCharStruct overall;
-    XTextExtents(font, s, strlen(s), &dir, &asc, &desc, &overall);
+    XTextExtents(f, s, strlen(s), &dir, &asc, &desc, &overall);
     int tw = overall.rbearing - overall.lbearing;
+    XSetFont(dpy, gc, f->fid);
     XSetForeground(dpy, gc, fg);
     XDrawString(dpy, win, gc, x + (w - tw) / 2 - overall.lbearing,
                 y + (h + asc - desc) / 2, s, strlen(s));
+}
+
+static void draw_centered(int x, int y, int w, int h, const char *s,
+                          unsigned long fg)
+{
+    draw_centered_f(font, x, y, w, h, s, fg);
 }
 
 static void draw(void)
@@ -176,14 +188,32 @@ static void draw(void)
     /* display */
     XSetForeground(dpy, gc, c_disp);
     XFillRectangle(dpy, win, gc, MARGIN, MARGIN, WIN_W - 2 * MARGIN, DISP_H);
-    draw_centered(MARGIN, MARGIN, WIN_W - 2 * MARGIN, DISP_H,
-                  entry, err ? c_err : c_dispfg);
+    XSetForeground(dpy, gc, c_btn);
+    XDrawRectangle(dpy, win, gc, MARGIN, MARGIN, WIN_W - 2 * MARGIN - 1,
+                   DISP_H - 1);
+    draw_centered_f(bigfont ? bigfont : font, MARGIN + 4, MARGIN,
+                    WIN_W - 2 * MARGIN - 8, DISP_H,
+                    entry, err ? c_err : c_dispfg);
     for (i = 0; i < NBTN; i++) {
         int is_op = (buttons[i].c == NCOL - 1) || i < 4;
+        int is_eq = buttons[i].label[0] == '=';
+        int is_c = buttons[i].label[0] == 'C';
+        unsigned long bg = is_op ? c_op : c_btn;
+        unsigned long fg = c_fg;
         btn_geom(i, &x, &y, &w, &h);
-        XSetForeground(dpy, gc, is_op ? c_op : c_btn);
+        if (is_eq)
+            bg = c_eq;
+        else if (is_c)
+            bg = c_clr;
+        if ((int)i == pressed_btn) {
+            fg = bg;
+            bg = c_fg;
+        }
+        XSetForeground(dpy, gc, bg);
         XFillRectangle(dpy, win, gc, x, y, w, h);
-        draw_centered(x, y, w, h, buttons[i].label, c_fg);
+        XSetForeground(dpy, gc, c_bg);
+        XDrawRectangle(dpy, win, gc, x, y, w - 1, h - 1);
+        draw_centered(x, y, w, h, buttons[i].label, fg);
     }
 }
 
@@ -252,10 +282,12 @@ int main(void)
         XColor xc;
         Colormap cm = DefaultColormap(dpy, scr);
         unsigned long *slots[] = { &c_bg, &c_fg, &c_btn, &c_op,
-                                   &c_disp, &c_dispfg, &c_err };
+                                   &c_disp, &c_dispfg, &c_err,
+                                   &c_eq, &c_clr };
         unsigned vals[] = { 0x101828, 0xFFFFFF, 0x2A4A73, 0x1E3A5F,
-                            0x0B1220, 0xE0F0FF, 0xFF6060 };
-        for (i = 0; i < 7; i++) {
+                            0x0B1220, 0xE0F0FF, 0xFF6060,
+                            0x2A7A3A, 0x7A2020 };
+        for (i = 0; i < 9; i++) {
             xc.red = ((vals[i] >> 16) & 0xFF) * 257;
             xc.green = ((vals[i] >> 8) & 0xFF) * 257;
             xc.blue = (vals[i] & 0xFF) * 257;
@@ -274,6 +306,20 @@ int main(void)
     if (!font) {
         fprintf(stderr, "toycalc: no font\n");
         return 1;
+    }
+    {
+        const char *bigfonts[] = {
+            "-misc-fixed-medium-r-normal--20-200-75-75-c-100-iso8859-1",
+            "10x20",
+            "9x15",
+            NULL
+        };
+        bigfont = NULL;
+        for (i = 0; bigfonts[i]; i++) {
+            bigfont = XLoadQueryFont(dpy, bigfonts[i]);
+            if (bigfont)
+                break;
+        }
     }
 
     bw = (WIN_W - 2 * MARGIN - (NCOL - 1) * GAP) / NCOL;
@@ -305,7 +351,12 @@ int main(void)
         } else if (ev.type == ButtonPress) {
             int b = at_button(ev.xbutton.x, ev.xbutton.y);
             if (b >= 0) {
+                pressed_btn = b;
+                draw();
+                XFlush(dpy);
+                usleep(70000);
                 press(buttons[b].key);
+                pressed_btn = -1;
                 draw();
             }
         } else if (ev.type == KeyPress) {

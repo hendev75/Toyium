@@ -124,6 +124,19 @@ toycalc() {
     command toycalc "$@" &
 }
 
+# 'help' was missing entirely (busybox ash has no help builtin)
+help() {
+    toyhelp
+    echo
+    echo "Type 'toy <cmd>' or '<cmd>' directly, e.g. 'toy cd /tmp'."
+}
+
+# clear screen AND scrollback (stock clear leaves scrollback behind,
+# which looks like 'clear did nothing' after long output like toyfetch)
+clear() {
+    printf '\033[H\033[2J\033[3J'
+}
+
 toyhelp() {
     echo "Toyium commands:"
     echo "  toyls [dir]    list directory contents"

@@ -42,16 +42,17 @@ exec startx /root/.xinitrc -- :0 vt1 -keeptty >/dev/ttyS0 2>&1
 EOF
 chmod 755 "$TARGET_DIR/sbin/toyium-x11-shell"
 
-# X session: panel + window manager + terminals.
+# X session: dock + window manager + terminals.
 cat > "$TARGET_DIR/root/.xinitrc" <<'EOF'
 #!/bin/sh
 export LANG=C
 export ENV=/etc/toyium-shrc
+xsetroot -solid "#101828" &
 toypanel &
 xterm -fa "DejaVu Sans Mono" -fs 11 -bg white -fg black \
-      -geometry 90x28+40+60 -title "Toyium X11 Terminal" &
+      -geometry 90x28+100+60 -title "Toyium X11 Terminal" &
 xterm -fa "DejaVu Sans Mono" -fs 11 -bg black -fg white \
-      -geometry 90x28+120+140 -title "Toyium Shell" &
+      -geometry 90x28+200+180 -title "Toyium Shell" &
 exec openbox
 EOF
 chmod 755 "$TARGET_DIR/root/.xinitrc"
