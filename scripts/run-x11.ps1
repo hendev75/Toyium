@@ -2,7 +2,9 @@
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
 $Qemu = 'C:\Program Files\qemu\qemu-system-x86_64.exe'
-$Kernel = Join-Path $Root 'build\bzImage'
+$KernelStock = Join-Path $Root 'build\toyium-x11-bzImage'
+$KernelToyium = Join-Path $Root 'build\bzImage'
+$Kernel = if (Test-Path $KernelStock) { $KernelStock } else { $KernelToyium }
 $Rootfs = Join-Path $Root 'build\toyium-x11-rootfs.ext4'
 
 if (-not (Test-Path $Qemu)) { throw "QEMU not found: $Qemu" }

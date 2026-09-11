@@ -13,6 +13,17 @@ if ! grep -q '[[:space:]]/dev[[:space:]]' "$TARGET_DIR/etc/fstab"; then
     printf 'devtmpfs\t/dev\tdevtmpfs\tmode=0755,nosuid\t0\t0\n' >> "$TARGET_DIR/etc/fstab"
 fi
 
+# With DEVPTS_MULTIPLE_INSTANCES always-on (Linux >= 4.7), the global
+# /dev/ptmx allocates ptys in a different instance than a plain /dev/pts
+# mount, so opening the slave gives EIO (xterm hangs in "open ttydev").
+# Mount devpts as a new instance and point /dev/ptmx at its multiplexer.
+sed -i 's#^\(devpts[[:space:]]*/dev/pts[[:space:]]*devpts[[:space:]]*\)[^[:space:]]*#\1newinstance,gid=5,mode=620,ptmxmode=0666#' \
+    "$TARGET_DIR/etc/fstab"
+if ! grep -q 'ln -sf pts/ptmx /dev/ptmx' "$TARGET_DIR/etc/inittab"; then
+    sed -i '/^::sysinit:\/bin\/mount -a$/a ::sysinit:/bin/ln -sf pts/ptmx /dev/ptmx' \
+        "$TARGET_DIR/etc/inittab"
+fi
+
 mkdir -p "$TARGET_DIR/sbin" "$TARGET_DIR/tmp/runtime-root" "$TARGET_DIR/root"
 
 # Wrapper run by the tty1 getty. Running startx here means Xorg inherits a real
@@ -52,5 +63,9 @@ ttyS0::respawn:/sbin/getty -L -n -l /bin/sh ttyS0 115200 vt100
 tty1::respawn:/sbin/getty -L -n -l /sbin/toyium-x11-shell tty1 0 linux
 EOF
 
-# Single controlled X path above; drop Buildroot's standalone Xorg service.
-rm -f "$TARGET_DIR/etc/init.d/S40xorg" "$TARGET_DIR/etc/init.d/S41xclients"
+# Single controlled X path above; drop Buildroot's standalone Xorg service and
+# any stale debug copies left in the target from earlier experiments.
+rm -f "$TARGET_DIR/etc/init.d/S40xorg" "$TARGET_DIR/etc/init.d/S41xclients" \
+      "$TARGET_DIR/etc/init.d/S99x11"
+# Stale xorg.conf.d snippets from earlier experiments override /etc/X11/xorg.conf.
+rm -f "$TARGET_DIR/etc/X11/xorg.conf.d/10-toyium.conf"

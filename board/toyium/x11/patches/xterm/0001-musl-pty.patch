@@ -1,0 +1,74 @@
+--- a/ptyx.h
++++ b/ptyx.h
+@@ -182,7 +182,7 @@
+ #define USE_PTY_DEVICE 1
+ #define USE_PTY_SEARCH 1
+ 
+-#if defined(__osf__) || (defined(linux) && defined(__GLIBC__) && (__GLIBC__ >= 2) && (__GLIBC_MINOR__ >= 1)) || defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__APPLE__)
++#if defined(__osf__) || defined(linux) || defined(__DragonFly__) || defined(__FreeBSD__) || defined(__NetBSD__) || defined(__OpenBSD__) || defined(__APPLE__)
+ #undef USE_PTY_DEVICE
+ #undef USE_PTY_SEARCH
+ #define USE_PTS_DEVICE 1
+@@ -198,7 +198,7 @@
+ #undef USE_PTY_DEVICE
+ #endif
+ 
+-#if (defined (__GLIBC__) && ((__GLIBC__ > 2) || (__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 1)))
++#if (defined (__GLIBC__) && ((__GLIBC__ > 2) || (__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 1))) || defined(linux)
+ #define USE_HANDSHAKE 0	/* "recent" Linux systems do not require handshaking */
+ #endif
+ 
+--- a/main.c
++++ b/main.c
+@@ -3125,9 +3125,12 @@
+ 	close(opened_tty);
+ 	opened_tty = -1;
+     }
+-#elif defined(HAVE_POSIX_OPENPT) && defined(HAVE_PTSNAME) && defined(HAVE_GRANTPT_PTY_ISATTY)
++#elif defined(HAVE_POSIX_OPENPT) && defined(HAVE_PTSNAME)
+     if ((*pty = posix_openpt(O_RDWR)) >= 0) {
++	int g = grantpt(*pty);
++	int u = unlockpt(*pty);
+ 	char *name = ptsname(*pty);
++	fprintf(stderr, "xterm get_pty: posix_openpt fd=%d grantpt=%d unlockpt=%d ptsname=%s errno=%d\n", *pty, g, u, name ? name : "(null)", errno);
+ 	if (name != 0) {
+ 	    strcpy(ttydev, name);
+ 	    result = 0;
+@@ -4073,8 +4076,8 @@
+ 	no_dev_tty = False;
+ #endif
+ 	if (ttyfd < 0) {
+-	    if (tty_got_hung || errno == ENXIO || errno == EIO ||
+-		errno == ENOENT ||
++	    if (1 || tty_got_hung || errno == ENXIO || errno == EIO ||
++		errno == ENOENT || errno == EBADF ||
+ #ifdef ENODEV
+ 		errno == ENODEV ||
+ #endif
+@@ -4100,7 +4103,7 @@
+ #endif /* sony */
+ #endif /* TERMIO_STRUCT */
+ 	    } else {
+-		SysError(ERROR_OPDEVTTY);
++		no_dev_tty = True; /* patched OPDEVTTY */
+ 	    }
+ 	} else {
+ 
+@@ -4510,7 +4513,7 @@
+ 			break;
+ #endif /* USE_SYSV_PGRP */
+ 		    }
+-		    perror("open ttydev");
++		    fprintf(stderr, "open ttydev %s: %s\n", ttydev, strerror(errno));
+ #ifdef TIOCSCTTY
+ 		    ioctl(ttyfd, TIOCSCTTY, 0);
+ #endif
+@@ -4869,7 +4872,7 @@
+ 		IGNORE_RC(close(0));
+ 
+ 		if (open("/dev/tty", O_RDWR)) {
+-		    SysError(ERROR_OPDEVTTY);
++		    no_dev_tty = True; /* patched OPDEVTTY */
+ 		}
+ 		IGNORE_RC(close(1));
+ 		IGNORE_RC(close(2));
