@@ -7,7 +7,7 @@
 BIN=/usr/bin/Xorg
 PIDFILE=/var/run/xorg.pid
 
-XORG_ARGS=":0.0 vt01 -s 0 -noreset -allowMouseOpenFail"
+XORG_ARGS=":0.0 -s 0 -noreset -allowMouseOpenFail -sharevts -novtswitch -keeptty"
 
 start() {
 	printf "Starting Xorg: "
