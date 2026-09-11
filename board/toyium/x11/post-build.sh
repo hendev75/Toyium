@@ -46,9 +46,9 @@ chmod 755 "$TARGET_DIR/sbin/toyium-x11-shell"
 cat > "$TARGET_DIR/root/.xinitrc" <<'EOF'
 #!/bin/sh
 export LANG=C
-xterm -fa "DejaVu Sans Mono" -fs 11 -bg white -fg black \
+xterm -fn fixed -bg white -fg black \
       -geometry 90x28+40+40 -title "Toyium X11 Terminal" &
-xterm -fa "DejaVu Sans Mono" -fs 11 -bg black -fg white \
+xterm -fn fixed -bg black -fg white \
       -geometry 90x28+120+120 -title "Toyium Shell" &
 exec openbox
 EOF
