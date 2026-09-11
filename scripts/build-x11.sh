@@ -42,6 +42,7 @@ BR2_PACKAGE_XSERVER_XORG_SERVER_KDRIVE=y
 BR2_PACKAGE_XAPP_XINIT=y
 BR2_PACKAGE_OPENBOX=y
 BR2_PACKAGE_XTERM=y
+BR2_PACKAGE_XDRIVER_XF86_INPUT_EVDEV=y
 BR2_PACKAGE_DEJAVU=y
 BR2_PACKAGE_DEJAVU_MONO=y
 BR2_PACKAGE_DEJAVU_SANS=y
@@ -78,18 +79,25 @@ printf 'BR2_LINUX_KERNEL_CONFIG_FRAGMENT_FILES="%s"\n' "${KFRAGMENT}" >> "${OUT}
 sed -i \
     -e 's/^BR2_PACKAGE_XSERVER_XORG_SERVER_MODULAR=y/# BR2_PACKAGE_XSERVER_XORG_SERVER_MODULAR is not set/' \
     -e 's/^# BR2_PACKAGE_XSERVER_XORG_SERVER_KDRIVE is not set/BR2_PACKAGE_XSERVER_XORG_SERVER_KDRIVE=y/' \
-    -e '/^BR2_PACKAGE_XDRIVER_XF86/d' \
     -e '/^BR2_PACKAGE_LIBINPUT\b/d' \
     -e '/^BR2_PACKAGE_LIBINPUT_/d' \
     -e '/^BR2_PACKAGE_EUDEV/d' \
     "${OUT}/.config"
 grep -q '^BR2_PACKAGE_XSERVER_XORG_SERVER_KDRIVE=y' "${OUT}/.config" || \
     printf '%s\n' 'BR2_PACKAGE_XSERVER_XORG_SERVER_KDRIVE=y' >> "${OUT}/.config"
+for xpkg in BR2_PACKAGE_XDRIVER_XF86_INPUT_EVDEV; do
+    grep -q "^${xpkg}=y" "${OUT}/.config" || printf '%s\n' "${xpkg}=y" >> "${OUT}/.config"
+done
+# Remove legacy keyboard/mouse driver selections if present
+sed -i '/^BR2_PACKAGE_XDRIVER_XF86_INPUT_KEYBOARD=y/d; /^BR2_PACKAGE_XDRIVER_XF86_INPUT_MOUSE=y/d' "${OUT}/.config"
 
 # Diagnostic X clients (root painting + window tree).
 for xpkg in BR2_PACKAGE_XAPP_XSETROOT BR2_PACKAGE_XAPP_XWININFO BR2_PACKAGE_XAPP_XDPYINFO; do
     grep -q "^${xpkg}=y" "${OUT}/.config" || printf '%s\n' "${xpkg}=y" >> "${OUT}/.config"
 done
+
+# Remove legacy input drivers (now handled by evdev) before olddefconfig
+sed -i '/^BR2_PACKAGE_XDRIVER_XF86_INPUT_KEYBOARD/d; /^BR2_PACKAGE_XDRIVER_XF86_INPUT_MOUSE/d; /^BR2_PACKAGE_XDRIVER_XF86_INPUT_VOID/d' "${OUT}/.config" 2>/dev/null || true
 
 # Ensure the post-build script is registered alongside Buildroot's own.
 if ! grep -q "${POSTBUILD}" "${OUT}/.config"; then
