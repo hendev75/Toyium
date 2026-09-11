@@ -1,4 +1,5 @@
 build/
+buildroot-2025.02.9/
 *.iso
 *.img
 *.cpio
@@ -8,3 +9,4 @@ __pycache__/
 .DS_Store
 Thumbs.db
 githubuploader \[exclude this from uploads AI\]/
+*.ext4
