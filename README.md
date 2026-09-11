@@ -8,7 +8,8 @@
    |_|\___/ \__, |_|\__,_|_| |_| |_|
             |___/
 ```
-<img width="721" height="456" alt="image" src="https://github.com/user-attachments/assets/3fe99642-b673-492b-b037-a5b48729745f" />
+<img width="824" height="611" alt="image" src="https://github.com/user-attachments/assets/eeed8525-a42a-4ef6-b437-feef3311baea" />
+
 
 **Toyium OS** — made by **xex & ayham**
 
