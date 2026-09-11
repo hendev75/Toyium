@@ -1,5 +1,5 @@
---- a/ptyx.h
-+++ b/ptyx.h
+--- a/xterm-389/ptyx.h
++++ b/xterm-389/ptyx.h
 @@ -182,7 +182,7 @@
  #define USE_PTY_DEVICE 1
  #define USE_PTY_SEARCH 1
@@ -9,17 +9,22 @@
  #undef USE_PTY_DEVICE
  #undef USE_PTY_SEARCH
  #define USE_PTS_DEVICE 1
-@@ -198,7 +198,7 @@
+@@ -198,11 +198,11 @@
  #undef USE_PTY_DEVICE
  #endif
  
 -#if (defined (__GLIBC__) && ((__GLIBC__ > 2) || (__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 1)))
-+#if (defined (__GLIBC__) && ((__GLIBC__ > 2) || (__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 1))) || defined(linux)
++#if (defined (__GLIBC__) && ((__GLIBC__ > 2) || (__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 1))) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux)
  #define USE_HANDSHAKE 0	/* "recent" Linux systems do not require handshaking */
  #endif
  
---- a/main.c
-+++ b/main.c
+-#if (defined (__GLIBC__) && ((__GLIBC__ > 2) || (__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 1)))
++#if (defined (__GLIBC__) && ((__GLIBC__ > 2) || (__GLIBC__ == 2) && (__GLIBC_MINOR__ >= 1))) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux) || defined(linux)
+ #define USE_USG_PTYS
+ #elif (defined(ATT) && !defined(__sgi)) || defined(__MVS__) || (defined(SYSV) && defined(i386))
+ #define USE_USG_PTYS
+--- a/xterm-389/main.c
++++ b/xterm-389/main.c
 @@ -3125,9 +3125,12 @@
  	close(opened_tty);
  	opened_tty = -1;
@@ -54,6 +59,15 @@
  	    }
  	} else {
  
+@@ -4351,7 +4354,7 @@
+ 	    /*
+ 	     * now in child process
+ 	     */
+-#if defined(_POSIX_SOURCE) || defined(SVR4) || defined(__convex__) || defined(__SCO__) || defined(__QNX__)
++#if defined(_POSIX_SOURCE) || defined(SVR4) || defined(__convex__) || defined(__SCO__) || defined(__QNX__) || defined(linux)
+ 	    int pgrp = setsid();	/* variable may not be used... */
+ #else
+ 	    int pgrp = getpid();
 @@ -4510,7 +4513,7 @@
  			break;
  #endif /* USE_SYSV_PGRP */
@@ -63,6 +77,15 @@
  #ifdef TIOCSCTTY
  		    ioctl(ttyfd, TIOCSCTTY, 0);
  #endif
+@@ -4570,7 +4573,7 @@
+ 		   eg. by lineedit in the shell, or emacs, etc. then tio
+ 		   will have bad values.  Let's just get termio from the
+ 		   new tty and tailor it.  */
+-		if (ttyGetAttr(ttyfd, &tio) == -1)
++		if (ttyfd >= 0 && ttyGetAttr(ttyfd, &tio) == -1)
+ 		    SysError(ERROR_TIOCGETP);
+ 		tio.c_lflag |= ECHOE;
+ #endif /* umips */
 @@ -4869,7 +4872,7 @@
  		IGNORE_RC(close(0));
  
@@ -72,3 +95,45 @@
  		}
  		IGNORE_RC(close(1));
  		IGNORE_RC(close(2));
+@@ -4903,6 +4906,41 @@
+ 	    tcsetpgrp(0, pgrp /*setsid() */ );
+ #endif
+ #endif /* !USE_SYSV_PGRP */
++#if defined(USE_SYSV_PGRP) && defined(linux)
++	    /* Toyium: foreground our pgrp on the pty slave */
++#ifdef TIOCSCTTY
++	    ioctl(0, TIOCSCTTY, 0);
++#endif
++	    tcsetpgrp(0, getpgrp());
++#endif
++#if defined(USE_SYSV_PGRP) && defined(linux)
++	    /* Toyium: foreground our pgrp on the pty slave */
++#ifdef TIOCSCTTY
++	    ioctl(0, TIOCSCTTY, 0);
++#endif
++	    tcsetpgrp(0, getpgrp());
++#endif
++#if defined(USE_SYSV_PGRP) && defined(linux)
++	    /* Toyium: foreground our pgrp on the pty slave */
++#ifdef TIOCSCTTY
++	    ioctl(0, TIOCSCTTY, 0);
++#endif
++	    tcsetpgrp(0, getpgrp());
++#endif
++#if defined(USE_SYSV_PGRP) && defined(linux)
++	    /* Toyium: foreground our pgrp on the pty slave */
++#ifdef TIOCSCTTY
++	    ioctl(0, TIOCSCTTY, 0);
++#endif
++	    tcsetpgrp(0, getpgrp());
++#endif
++#if defined(USE_SYSV_PGRP) && defined(linux)
++	    /* Toyium: foreground our pgrp on the pty slave */
++#ifdef TIOCSCTTY
++	    ioctl(0, TIOCSCTTY, 0);
++#endif
++	    tcsetpgrp(0, getpgrp());
++#endif
+ 
+ #ifdef Lynx
+ 	    {
